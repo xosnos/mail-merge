@@ -85,6 +85,7 @@ function sendBatchEmails(config) {
     setProperty(CONFIG.KEYS.SENDER_ALIAS, config.senderAlias);
     setProperty(CONFIG.KEYS.REPLY_TO, config.replyTo);
     setProperty(CONFIG.KEYS.EMAIL_COLUMN, config.emailColumn);
+    setProperty(CONFIG.KEYS.WEB_APP_URL, config.webAppUrl);
     
     // Check quota
     const quota = MailApp.getRemainingDailyQuota();
@@ -95,6 +96,12 @@ function sendBatchEmails(config) {
     const sheet = SpreadsheetApp.getActiveSheet();
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) throw new Error("No data available to send.");
+    
+    // Pre-flight validation
+    const validation = validateTemplate(config.draftId);
+    if (!validation.isValid) {
+      return { success: false, message: "Validation failed. Missing columns: " + validation.missingColumns.join(", ") };
+    }
     
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     
@@ -121,6 +128,12 @@ function sendBatchEmails(config) {
     
     for (let i = 0; i < data.length; i++) {
         const row = data[i];
+        
+        // Skip completely empty rows
+        if (row.every(cell => !cell || String(cell).trim() === '')) {
+            continue;
+        }
+        
         const status = row[statusColIndex];
         const email = String(row[emailColIndex]).trim();
         
@@ -143,8 +156,25 @@ function sendBatchEmails(config) {
         
         // Process variables
         const subject = replaceVariables(msg.getSubject(), headers, row);
-        const htmlBody = replaceVariables(msg.getBody(), headers, row);
+        let htmlBody = replaceVariables(msg.getBody(), headers, row);
         const plainBody = replaceVariables(msg.getPlainBody(), headers, row);
+        
+        // Append tracking pixel if URL is provided
+        if (config.webAppUrl) {
+            const sheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
+            const sheetName = encodeURIComponent(sheet.getName());
+            const pixelUrl = `${config.webAppUrl}?sheetId=${sheetId}&sheetName=${sheetName}&row=${i + 2}&t=${Date.now()}`;
+            // Escape ampersands for valid HTML and drop display:none to bypass spam filters
+            const safePixelUrl = pixelUrl.replace(/&/g, '&amp;');
+            const imgTag = `<img src="${safePixelUrl}" alt="" width="1" height="1" border="0" />`;
+            
+            // Gmail strictly strips tags outside the <body>. Inject before </body> if it exists.
+            if (htmlBody.toLowerCase().includes("</body>")) {
+                htmlBody = htmlBody.replace(/<\/body>/i, imgTag + "</body>");
+            } else {
+                htmlBody += imgTag;
+            }
+        }
         
         const options = {
           htmlBody: htmlBody,

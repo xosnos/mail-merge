@@ -73,8 +73,14 @@ function validateTemplate(draftId) {
   // Get variables from Draft
   const variables = getDraftVariables(draftId);
   
-  // Find variables that don't match any header (case-sensitive)
-  const missingColumns = variables.filter(variable => !headers.includes(variable));
+  // Normalize headers for case-insensitive and space-insensitive matching
+  const normalizedHeaders = headers.map(h => String(h).toLowerCase().replace(/\s+/g, ''));
+  
+  // Find variables that don't match any header
+  const missingColumns = variables.filter(variable => {
+    const normalizedVar = String(variable).toLowerCase().replace(/\s+/g, '');
+    return !normalizedHeaders.includes(normalizedVar);
+  });
   
   return {
     isValid: missingColumns.length === 0,
@@ -123,8 +129,7 @@ function initializeSheet() {
     const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
     const hasStatus = headers.some(h => String(h).toLowerCase() === 'merge status');
     
-    if (!hasStatus) {
-      sheet.getRange(1, lastCol + 1).setValue('Merge status').setFontWeight('bold');
-    }
+    let nextCol = lastCol + 1;
+    if (!hasStatus) sheet.getRange(1, nextCol++).setValue('Merge status').setFontWeight('bold');
   }
 }

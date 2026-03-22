@@ -95,9 +95,15 @@
       <label for="replyTo">Reply-To Address (Optional)</label>
       <input type="text" id="replyTo" placeholder="e.g. support@company.com">
     </div>
+    
+    <div class="form-group" style="padding-top: 10px; border-top: 1px solid #ddd;">
+      <label for="webAppUrl">Analytics: Web App Tracking URL (Optional)</label>
+      <input type="text" id="webAppUrl" placeholder="https://script.google.com/macros/s/.../exec">
+    </div>
 
     <button id="btnTest" class="btn" style="background-color: #f1f3f4; color: #333; margin-top: 20px;" disabled>Send Test Email</button>
     <button id="btnSend" class="btn" disabled>Send Emails</button>
+    <button id="btnRefresh" class="btn" style="background-color: #4285F4; margin-top: 10px;">Refresh Analytics</button>
     
     <div id="statusBox" class="status-box"></div>
 
@@ -121,7 +127,28 @@
         document.getElementById('btnSend').addEventListener('click', function() {
            triggerSend(false);
         });
+        document.getElementById('btnRefresh').addEventListener('click', function() {
+           triggerRefreshAnalytics();
+        });
       });
+      
+      function triggerRefreshAnalytics() {
+          showStatus("Checking Inbox for Bounces...");
+          const btnRefresh = document.getElementById('btnRefresh');
+          btnRefresh.disabled = true;
+          google.script.run
+            .withSuccessHandler(function(response) {
+               if(response.success) { showStatus(response.message); } 
+               else { showStatus("Error: " + response.message, true); }
+               btnRefresh.disabled = false;
+               setTimeout(() => { document.getElementById('statusBox').style.display = 'none'; }, 5000);
+            })
+            .withFailureHandler(function(error) {
+               showStatus("Execution Error: " + error.message, true);
+               btnRefresh.disabled = false;
+            })
+            .checkBounces();
+      }
       
       function getUiConfig() {
          return {
@@ -129,7 +156,8 @@
            senderName: document.getElementById('senderName').value,
            senderAlias: document.getElementById('senderAlias').value,
            replyTo: document.getElementById('replyTo').value,
-           emailColumn: document.getElementById('emailColumn').value
+           emailColumn: document.getElementById('emailColumn').value,
+           webAppUrl: document.getElementById('webAppUrl').value
          };
       }
       
@@ -247,6 +275,9 @@
         
         if (data.savedProperties && data.savedProperties['YAMM_CLONE_EMAIL_COLUMN']) {
            emailColSelect.value = data.savedProperties['YAMM_CLONE_EMAIL_COLUMN'];
+        }
+        if (data.savedProperties && data.savedProperties['YAMM_CLONE_WEB_APP_URL']) {
+           document.getElementById('webAppUrl').value = data.savedProperties['YAMM_CLONE_WEB_APP_URL'];
         }
         
         setTimeout(() => {
