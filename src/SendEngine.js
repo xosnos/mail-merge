@@ -258,6 +258,9 @@ function sendBatchEmails(config, startRow) {
     PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
     PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.BATCH_CONFIG);
 
+    // Enable background scanning since toggle is removed
+    setupAnalyticsTrigger();
+
     return { success: true, message: `Successfully sent ${sentCount} emails.` };
   } catch (err) {
     return { success: false, message: err.message };

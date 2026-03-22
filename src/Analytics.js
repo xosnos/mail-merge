@@ -297,7 +297,7 @@ function runAnalyticsScanner() {
 }
 
 /**
- * Creates a time-driven trigger to run the analytics scanner every 2 hours.
+ * Creates a time-driven trigger to run the analytics scanner every 15 minutes.
  * Stores the trigger ID in PropertiesService for later cleanup.
  * @returns {Object} { success: boolean, message: string }
  */
@@ -308,12 +308,12 @@ function setupAnalyticsTrigger() {
 
     const trigger = ScriptApp.newTrigger('runAnalyticsScanner')
       .timeBased()
-      .everyHours(2)
+      .everyMinutes(15)
       .create();
 
     setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId());
 
-    return { success: true, message: 'Background scanning enabled (every 2 hours).' };
+    return { success: true, message: 'Background scanning enabled (every 15 minutes).' };
   } catch (err) {
     return { success: false, message: err.message };
   }
