@@ -4,7 +4,7 @@
  */
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('Mail Merge')
+  ui.createMenu('UNAVSA Mail Merge')
     .addItem('Start', 'showSidebar')
     .addToUi();
 }
@@ -14,7 +14,7 @@ function onOpen(e) {
  */
 function showSidebar() {
   const html = HtmlService.createHtmlOutputFromFile('Sidebar')
-      .setTitle('Mail Merge')
+      .setTitle('UNAVSA Mail Merge')
       .setWidth(300);
       
   SpreadsheetApp.getUi().showSidebar(html);
