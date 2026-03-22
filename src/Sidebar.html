@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 15px;
+        color: #333;
+      }
+      h2 {
+        font-size: 16px;
+        margin-bottom: 20px;
+        color: #0F9D58;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        font-weight: bold;
+        font-size: 12px;
+        margin-bottom: 5px;
+      }
+      input[type="text"], select {
+        width: 100%;
+        padding: 8px;
+        box-sizing: border-box;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .btn {
+        width: 100%;
+        padding: 10px;
+        background-color: #0F9D58;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 14px;
+        font-weight: bold;
+        cursor: pointer;
+        margin-top: 10px;
+      }
+      .btn:hover {
+        background-color: #0d8a4d;
+      }
+      .btn:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+      .status-box {
+        margin-top: 20px;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        background-color: #f1f3f4;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Mail Merge</h2>
+    
+    <div class="form-group">
+      <label for="draftSelect" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>Select Gmail Draft</span>
+        <a href="#" id="refreshDraftsBtn" style="color: #0F9D58; text-decoration: none; font-weight: normal; font-size: 11px;">🔄 Refresh</a>
+      </label>
+      <select id="draftSelect">
+        <option value="">Loading drafts...</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="senderName">Sender Name</label>
+      <input type="text" id="senderName" placeholder="e.g. HR Department">
+    </div>
+
+    <div class="form-group">
+      <label for="senderAlias">Sender Email</label>
+      <select id="senderAlias">
+        <option value="">Loading aliases...</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="emailColumn">Recipient Email Column</label>
+      <select id="emailColumn">
+        <option value="">Loading columns...</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="replyTo">Reply-To Address (Optional)</label>
+      <input type="text" id="replyTo" placeholder="e.g. support@company.com">
+    </div>
+
+    <button id="btnTest" class="btn" style="background-color: #f1f3f4; color: #333; margin-top: 20px;" disabled>Send Test Email</button>
+    <button id="btnSend" class="btn" disabled>Send Emails</button>
+    
+    <div id="statusBox" class="status-box"></div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        loadData();
+        
+        // Add event listeners
+        document.getElementById('draftSelect').addEventListener('change', handleDraftSelection);
+        document.getElementById('emailColumn').addEventListener('change', function(e) {
+             // In phase 3 we will save this to properties
+        });
+        document.getElementById('refreshDraftsBtn').addEventListener('click', function(e) {
+          e.preventDefault();
+          loadData();
+        });
+        
+        document.getElementById('btnTest').addEventListener('click', function() {
+           triggerSend(true);
+        });
+        document.getElementById('btnSend').addEventListener('click', function() {
+           triggerSend(false);
+        });
+      });
+      
+      function getUiConfig() {
+         return {
+           draftId: document.getElementById('draftSelect').value,
+           senderName: document.getElementById('senderName').value,
+           senderAlias: document.getElementById('senderAlias').value,
+           replyTo: document.getElementById('replyTo').value,
+           emailColumn: document.getElementById('emailColumn').value
+         };
+      }
+      
+      function triggerSend(isTest) {
+         const config = getUiConfig();
+         
+         if(!config.draftId || !config.emailColumn) {
+             showStatus("Please ensure Draft and Email Column are selected.", true);
+             return;
+         }
+         
+         const btnTest = document.getElementById('btnTest');
+         const btnSend = document.getElementById('btnSend');
+         btnTest.disabled = true;
+         btnSend.disabled = true;
+         
+         const actionMsg = isTest ? "Sending test email to yourself..." : "Sending batch emails...";
+         showStatus(actionMsg);
+         
+         const backendFunc = isTest ? 'sendTestEmail' : 'sendBatchEmails';
+         
+         google.script.run
+           .withSuccessHandler(function(response) {
+               if(response.success) {
+                  showStatus(response.message);
+               } else {
+                  showStatus("Error: " + response.message, true);
+               }
+               btnTest.disabled = false;
+               btnSend.disabled = false;
+               if(response.success && !isTest) {
+                   setTimeout(() => { document.getElementById('statusBox').style.display = 'none'; }, 5000);
+               }
+           })
+           .withFailureHandler(function(error) {
+               showStatus("Execution Error: " + error.message, true);
+               btnTest.disabled = false;
+               btnSend.disabled = false;
+           })
+           [backendFunc](config);
+      }
+
+      function loadData() {
+        showStatus("Loading accounts and drafts...");
+        const btnSend = document.getElementById('btnSend');
+        btnSend.disabled = true; // disable send while loading
+        
+        const draftSelect = document.getElementById('draftSelect');
+        const currentDraftId = draftSelect ? draftSelect.value : null;
+        
+        google.script.run
+          .withSuccessHandler(function(data) {
+            initializeUI(data, currentDraftId);
+          })
+          .withFailureHandler(function(error) {
+            showStatus("Error Loading: " + error.message, true);
+          })
+          .getSidebarData();
+      }
+      
+      function initializeUI(data, currentDraftId) {
+        showStatus("Data loaded successfully!");
+        
+        // Populate Drafts
+        const draftSelect = document.getElementById('draftSelect');
+        draftSelect.innerHTML = '<option value="">-- Choose a Draft --</option>';
+        data.drafts.forEach(draft => {
+          const opt = document.createElement('option');
+          opt.value = draft.id;
+          opt.text = draft.subject;
+          draftSelect.add(opt);
+        });
+        
+        // Populate Aliases
+        const aliasSelect = document.getElementById('senderAlias');
+        aliasSelect.innerHTML = '';
+        data.aliases.forEach(alias => {
+          const opt = document.createElement('option');
+          opt.value = alias;
+          opt.text = alias;
+          aliasSelect.add(opt);
+        });
+        
+        // Populate Email Column
+        const emailColSelect = document.getElementById('emailColumn');
+        emailColSelect.innerHTML = '';
+        let foundEmailCol = false;
+        
+        data.headers.forEach(header => {
+          if (!header) return;
+          const opt = document.createElement('option');
+          opt.value = header;
+          opt.text = header;
+          emailColSelect.add(opt);
+          
+          if (!foundEmailCol && header.toLowerCase().includes('email')) {
+             opt.selected = true;
+             foundEmailCol = true;
+          }
+        });
+        
+        // Restore saved settings or preserve current selection during refresh
+        let draftToSelect = currentDraftId;
+        if (!draftToSelect && data.savedProperties && data.savedProperties['YAMM_CLONE_DRAFT_ID']) {
+           draftToSelect = data.savedProperties['YAMM_CLONE_DRAFT_ID'];
+        }
+        
+        if (draftToSelect) {
+           const exists = Array.from(draftSelect.options).some(opt => opt.value === draftToSelect);
+           if (exists) {
+               draftSelect.value = draftToSelect;
+               handleDraftSelection({target: draftSelect}); // Re-run validation
+           }
+        }
+        
+        if (data.savedProperties && data.savedProperties['YAMM_CLONE_EMAIL_COLUMN']) {
+           emailColSelect.value = data.savedProperties['YAMM_CLONE_EMAIL_COLUMN'];
+        }
+        
+        setTimeout(() => {
+          document.getElementById('statusBox').style.display = 'none';
+        }, 3000);
+      }
+      
+      function handleDraftSelection(e) {
+        const draftId = e.target.value;
+        const btnSend = document.getElementById('btnSend');
+        
+        if (!draftId) {
+          btnSend.disabled = true;
+          showStatus("");
+          return;
+        }
+        
+        showStatus("Validating template variables...");
+        btnSend.disabled = true;
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            const btnTest = document.getElementById('btnTest');
+            const btnSend = document.getElementById('btnSend');
+            if (result.isValid) {
+               showStatus("Template matches all columns! Ready to send.");
+               btnSend.disabled = false;
+               btnTest.disabled = false;
+               setTimeout(() => { document.getElementById('statusBox').style.display = 'none'; }, 2000);
+            } else {
+               showStatus("Missing Columns in Sheet: " + result.missingColumns.join(", "), true);
+               btnSend.disabled = true;
+               btnTest.disabled = true;
+            }
+          })
+          .withFailureHandler(function(error) {
+            showStatus("Validation Error: " + error.message, true);
+          })
+          .validateTemplate(draftId);
+      }
+      
+      function showStatus(msg, isError = false) {
+        const box = document.getElementById('statusBox');
+        if (!msg) {
+          box.style.display = 'none';
+          return;
+        }
+        box.style.display = 'block';
+        box.innerText = msg;
+        box.style.color = isError ? '#D32F2F' : '#333';
+        box.style.backgroundColor = isError ? '#FFEBEE' : '#f1f3f4';
+      }
+    </script>
+  </body>
+</html>
