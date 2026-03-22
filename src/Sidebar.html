@@ -57,6 +57,58 @@
         background-color: #f1f3f4;
         display: none;
       }
+      .section-divider {
+        padding-top: 10px;
+        border-top: 1px solid #ddd;
+      }
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+      }
+      .toggle-row label {
+        font-weight: normal;
+        font-size: 13px;
+        margin-bottom: 0;
+        flex: 1;
+      }
+      .toggle-switch {
+        position: relative;
+        width: 40px;
+        height: 22px;
+        flex-shrink: 0;
+      }
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: #ccc;
+        border-radius: 22px;
+        transition: 0.3s;
+      }
+      .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        border-radius: 50%;
+        transition: 0.3s;
+      }
+      .toggle-switch input:checked + .toggle-slider {
+        background-color: #0F9D58;
+      }
+      .toggle-switch input:checked + .toggle-slider:before {
+        transform: translateX(18px);
+      }
     </style>
   </head>
   <body>
@@ -96,14 +148,24 @@
       <input type="text" id="replyTo" placeholder="e.g. support@company.com">
     </div>
     
-    <div class="form-group" style="padding-top: 10px; border-top: 1px solid #ddd;">
+    <div class="form-group section-divider">
       <label for="webAppUrl">Analytics: Web App Tracking URL (Optional)</label>
       <input type="text" id="webAppUrl" placeholder="https://script.google.com/macros/s/.../exec">
     </div>
 
     <button id="btnTest" class="btn" style="background-color: #f1f3f4; color: #333; margin-top: 20px;" disabled>Send Test Email</button>
     <button id="btnSend" class="btn" disabled>Send Emails</button>
-    <button id="btnRefresh" class="btn" style="background-color: #4285F4; margin-top: 10px;">Refresh Analytics</button>
+    
+    <div class="section-divider" style="margin-top: 15px;">
+      <button id="btnRefresh" class="btn" style="background-color: #4285F4;">Refresh Analytics</button>
+      <div class="toggle-row">
+        <label for="bgScanToggle">Background scan (every 2 hrs)</label>
+        <div class="toggle-switch">
+          <input type="checkbox" id="bgScanToggle">
+          <span class="toggle-slider"></span>
+        </div>
+      </div>
+    </div>
     
     <div id="statusBox" class="status-box"></div>
 
@@ -114,7 +176,7 @@
         // Add event listeners
         document.getElementById('draftSelect').addEventListener('change', handleDraftSelection);
         document.getElementById('emailColumn').addEventListener('change', function(e) {
-             // In phase 3 we will save this to properties
+             // Save email column preference
         });
         document.getElementById('refreshDraftsBtn').addEventListener('click', function(e) {
           e.preventDefault();
@@ -130,24 +192,53 @@
         document.getElementById('btnRefresh').addEventListener('click', function() {
            triggerRefreshAnalytics();
         });
+        document.getElementById('bgScanToggle').addEventListener('change', function() {
+           toggleBackgroundScanning(this.checked);
+        });
       });
       
       function triggerRefreshAnalytics() {
-          showStatus("Checking Inbox for Bounces...");
-          const btnRefresh = document.getElementById('btnRefresh');
+          showStatus('Scanning for bounces and replies...');
+          var btnRefresh = document.getElementById('btnRefresh');
           btnRefresh.disabled = true;
           google.script.run
             .withSuccessHandler(function(response) {
-               if(response.success) { showStatus(response.message); } 
-               else { showStatus("Error: " + response.message, true); }
+               if (response.success) { showStatus(response.message); } 
+               else { showStatus('Error: ' + response.message, true); }
                btnRefresh.disabled = false;
-               setTimeout(() => { document.getElementById('statusBox').style.display = 'none'; }, 5000);
+               setTimeout(function() { document.getElementById('statusBox').style.display = 'none'; }, 5000);
             })
             .withFailureHandler(function(error) {
-               showStatus("Execution Error: " + error.message, true);
+               showStatus('Execution Error: ' + error.message, true);
                btnRefresh.disabled = false;
             })
-            .checkBounces();
+            .runAnalyticsScanner();
+      }
+      
+      function toggleBackgroundScanning(enabled) {
+          var toggle = document.getElementById('bgScanToggle');
+          toggle.disabled = true;
+          
+          var fn = enabled ? 'setupAnalyticsTrigger' : 'removeAnalyticsTrigger';
+          showStatus(enabled ? 'Enabling background scanning...' : 'Disabling background scanning...');
+          
+          google.script.run
+            .withSuccessHandler(function(response) {
+              if (response.success) {
+                showStatus(response.message);
+              } else {
+                showStatus('Error: ' + response.message, true);
+                toggle.checked = !enabled; // revert toggle
+              }
+              toggle.disabled = false;
+              setTimeout(function() { document.getElementById('statusBox').style.display = 'none'; }, 4000);
+            })
+            .withFailureHandler(function(error) {
+              showStatus('Error: ' + error.message, true);
+              toggle.checked = !enabled; // revert toggle
+              toggle.disabled = false;
+            })
+            [fn]();
       }
       
       function getUiConfig() {
@@ -162,38 +253,38 @@
       }
       
       function triggerSend(isTest) {
-         const config = getUiConfig();
+         var config = getUiConfig();
          
-         if(!config.draftId || !config.emailColumn) {
-             showStatus("Please ensure Draft and Email Column are selected.", true);
+         if (!config.draftId || !config.emailColumn) {
+             showStatus('Please ensure Draft and Email Column are selected.', true);
              return;
          }
          
-         const btnTest = document.getElementById('btnTest');
-         const btnSend = document.getElementById('btnSend');
+         var btnTest = document.getElementById('btnTest');
+         var btnSend = document.getElementById('btnSend');
          btnTest.disabled = true;
          btnSend.disabled = true;
          
-         const actionMsg = isTest ? "Sending test email to yourself..." : "Sending batch emails...";
+         var actionMsg = isTest ? 'Sending test email to yourself...' : 'Sending batch emails...';
          showStatus(actionMsg);
          
-         const backendFunc = isTest ? 'sendTestEmail' : 'sendBatchEmails';
+         var backendFunc = isTest ? 'sendTestEmail' : 'sendBatchEmails';
          
          google.script.run
            .withSuccessHandler(function(response) {
-               if(response.success) {
+               if (response.success) {
                   showStatus(response.message);
                } else {
-                  showStatus("Error: " + response.message, true);
+                  showStatus('Error: ' + response.message, true);
                }
                btnTest.disabled = false;
                btnSend.disabled = false;
-               if(response.success && !isTest) {
-                   setTimeout(() => { document.getElementById('statusBox').style.display = 'none'; }, 5000);
+               if (response.success && !isTest) {
+                   setTimeout(function() { document.getElementById('statusBox').style.display = 'none'; }, 5000);
                }
            })
            .withFailureHandler(function(error) {
-               showStatus("Execution Error: " + error.message, true);
+               showStatus('Execution Error: ' + error.message, true);
                btnTest.disabled = false;
                btnSend.disabled = false;
            })
@@ -201,54 +292,54 @@
       }
 
       function loadData() {
-        showStatus("Loading accounts and drafts...");
-        const btnSend = document.getElementById('btnSend');
-        btnSend.disabled = true; // disable send while loading
+        showStatus('Loading accounts and drafts...');
+        var btnSend = document.getElementById('btnSend');
+        btnSend.disabled = true;
         
-        const draftSelect = document.getElementById('draftSelect');
-        const currentDraftId = draftSelect ? draftSelect.value : null;
+        var draftSelect = document.getElementById('draftSelect');
+        var currentDraftId = draftSelect ? draftSelect.value : null;
         
         google.script.run
           .withSuccessHandler(function(data) {
             initializeUI(data, currentDraftId);
           })
           .withFailureHandler(function(error) {
-            showStatus("Error Loading: " + error.message, true);
+            showStatus('Error Loading: ' + error.message, true);
           })
           .getSidebarData();
       }
       
       function initializeUI(data, currentDraftId) {
-        showStatus("Data loaded successfully!");
+        showStatus('Data loaded successfully!');
         
         // Populate Drafts
-        const draftSelect = document.getElementById('draftSelect');
+        var draftSelect = document.getElementById('draftSelect');
         draftSelect.innerHTML = '<option value="">-- Choose a Draft --</option>';
-        data.drafts.forEach(draft => {
-          const opt = document.createElement('option');
+        data.drafts.forEach(function(draft) {
+          var opt = document.createElement('option');
           opt.value = draft.id;
           opt.text = draft.subject;
           draftSelect.add(opt);
         });
         
         // Populate Aliases
-        const aliasSelect = document.getElementById('senderAlias');
+        var aliasSelect = document.getElementById('senderAlias');
         aliasSelect.innerHTML = '';
-        data.aliases.forEach(alias => {
-          const opt = document.createElement('option');
+        data.aliases.forEach(function(alias) {
+          var opt = document.createElement('option');
           opt.value = alias;
           opt.text = alias;
           aliasSelect.add(opt);
         });
         
         // Populate Email Column
-        const emailColSelect = document.getElementById('emailColumn');
+        var emailColSelect = document.getElementById('emailColumn');
         emailColSelect.innerHTML = '';
-        let foundEmailCol = false;
+        var foundEmailCol = false;
         
-        data.headers.forEach(header => {
+        data.headers.forEach(function(header) {
           if (!header) return;
-          const opt = document.createElement('option');
+          var opt = document.createElement('option');
           opt.value = header;
           opt.text = header;
           emailColSelect.add(opt);
@@ -260,16 +351,16 @@
         });
         
         // Restore saved settings or preserve current selection during refresh
-        let draftToSelect = currentDraftId;
+        var draftToSelect = currentDraftId;
         if (!draftToSelect && data.savedProperties && data.savedProperties['YAMM_CLONE_DRAFT_ID']) {
            draftToSelect = data.savedProperties['YAMM_CLONE_DRAFT_ID'];
         }
         
         if (draftToSelect) {
-           const exists = Array.from(draftSelect.options).some(opt => opt.value === draftToSelect);
+           var exists = Array.from(draftSelect.options).some(function(opt) { return opt.value === draftToSelect; });
            if (exists) {
                draftSelect.value = draftToSelect;
-               handleDraftSelection({target: draftSelect}); // Re-run validation
+               handleDraftSelection({target: draftSelect});
            }
         }
         
@@ -280,47 +371,56 @@
            document.getElementById('webAppUrl').value = data.savedProperties['YAMM_CLONE_WEB_APP_URL'];
         }
         
-        setTimeout(() => {
+        // Restore background scanning toggle state
+        var bgToggle = document.getElementById('bgScanToggle');
+        if (data.savedProperties && data.savedProperties['YAMM_CLONE_ANALYTICS_TRIGGER_ID']) {
+           bgToggle.checked = true;
+        } else {
+           bgToggle.checked = false;
+        }
+        
+        setTimeout(function() {
           document.getElementById('statusBox').style.display = 'none';
         }, 3000);
       }
       
       function handleDraftSelection(e) {
-        const draftId = e.target.value;
-        const btnSend = document.getElementById('btnSend');
+        var draftId = e.target.value;
+        var btnSend = document.getElementById('btnSend');
         
         if (!draftId) {
           btnSend.disabled = true;
-          showStatus("");
+          showStatus('');
           return;
         }
         
-        showStatus("Validating template variables...");
+        showStatus('Validating template variables...');
         btnSend.disabled = true;
         
         google.script.run
           .withSuccessHandler(function(result) {
-            const btnTest = document.getElementById('btnTest');
-            const btnSend = document.getElementById('btnSend');
+            var btnTest = document.getElementById('btnTest');
+            var btnSend = document.getElementById('btnSend');
             if (result.isValid) {
-               showStatus("Template matches all columns! Ready to send.");
+               showStatus('Template matches all columns! Ready to send.');
                btnSend.disabled = false;
                btnTest.disabled = false;
-               setTimeout(() => { document.getElementById('statusBox').style.display = 'none'; }, 2000);
+               setTimeout(function() { document.getElementById('statusBox').style.display = 'none'; }, 2000);
             } else {
-               showStatus("Missing Columns in Sheet: " + result.missingColumns.join(", "), true);
+               showStatus('Missing Columns in Sheet: ' + result.missingColumns.join(', '), true);
                btnSend.disabled = true;
                btnTest.disabled = true;
             }
           })
           .withFailureHandler(function(error) {
-            showStatus("Validation Error: " + error.message, true);
+            showStatus('Validation Error: ' + error.message, true);
           })
           .validateTemplate(draftId);
       }
       
-      function showStatus(msg, isError = false) {
-        const box = document.getElementById('statusBox');
+      function showStatus(msg, isError) {
+        isError = isError || false;
+        var box = document.getElementById('statusBox');
         if (!msg) {
           box.style.display = 'none';
           return;

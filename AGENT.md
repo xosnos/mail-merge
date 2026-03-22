@@ -34,5 +34,5 @@ For each new feature or roadmap phase:
 
 * **Phase 1 (Complete):** UI Scaffolding, `appsscript.json` OAuth Scopes, and Clasp login flow.
 * **Phase 2 (Complete):** Gmail API Draft/Alias fetching, regex variable parsing, and automatic spreadsheet template initialization.
-* **Phase 3 (Complete):** Core dispatch engine, quota tracking, dry-run test emails, and pre-flight bad email syntax blocking.
-* **Phase 4 (Pending):** Tracking & Analytics Engine (bounces, opens).*
+* **Phase 3 (Complete):** Core dispatch engine, quota tracking, dry-run test emails, pre-flight bad email syntax blocking. Refactored to Advanced Gmail API (`Gmail.Users.Messages.send`) with raw MIME messages via `MimeBuilder.js`. Custom `X-Campaign-ID` and `X-Row-ID` headers injected for tracking. Batch timeout management with automatic trigger-based resumption for large lists.
+* **Phase 4 (Complete):** Tracking & Analytics Engine. Open tracking via pixel injection + `doGet` web app. Reply tracking via `X-Campaign-ID` header scanning. Improved bounce detection with raw NDR header parsing. Unified `runAnalyticsScanner()` entry point. Background automation via time-driven triggers (every 2 hours). Sidebar UI updated with background scanning toggle.
