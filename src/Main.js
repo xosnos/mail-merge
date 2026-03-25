@@ -1,57 +1,6 @@
 /**
- * Triggered automatically when the user opens the Google Sheet.
- * @param {GoogleAppsScript.Events.SheetsOnOpen} e 
+ * Main application logic and helpers
  */
-function onOpen(e) {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('UNAVSA Mail Merge')
-    .addItem('Start', 'showSidebar')
-    .addToUi();
-}
-
-/**
- * Loads the HTML sidebar and displays it in the Google Sheet UI.
- */
-function showSidebar() {
-  const html = HtmlService.createHtmlOutputFromFile('Sidebar')
-      .setTitle('UNAVSA Mail Merge')
-      .setWidth(300);
-      
-  SpreadsheetApp.getUi().showSidebar(html);
-}
-
-/**
- * Backend ping test called from the frontend Sidebar.
- * @returns {string} Success message
- */
-function pingBackend() {
-  return "Connected to Google Apps Script successfully!";
-}
-
-/**
- * Called by the Sidebar to get all necessary initialization data at once.
- * @returns {Object} { drafts: [...], aliases: [...], savedProperties: {...}, headers: [...] }
- */
-function getSidebarData() {
-  initializeSheet();
-  
-  const drafts = getGmailDrafts();
-  const aliases = getGmailAliases();
-  const props = PropertiesService.getDocumentProperties().getProperties();
-  
-  const sheet = SpreadsheetApp.getActiveSheet();
-  let headers = [];
-  if (sheet.getLastColumn() > 0) {
-    headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
-  }
-  
-  return {
-    drafts: drafts,
-    aliases: aliases,
-    savedProperties: props,
-    headers: headers
-  };
-}
 
 /**
  * Validates the selected draft's variables against the active sheet's headers.

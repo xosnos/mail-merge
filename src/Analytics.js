@@ -209,18 +209,17 @@ function checkReplies() {
     threads.forEach(thread => {
       const messages = thread.getMessages();
 
-      messages.forEach(msg => {
-        // Check if any message in the thread has our campaign header
-        const msgId = msg.getId();
-        let hasCampaignHeader = false;
-        let matchedRowId = null;
+      let threadHasCampaign = false;
+      let matchedRowId = null;
 
+      // First pass: determine if this thread belongs to our campaign
+      for (const msg of messages) {
         try {
-          const fullMsg = Gmail.Users.Messages.get('me', msgId, { format: 'metadata', metadataHeaders: ['X-Campaign-ID', 'X-Row-ID', 'From'] });
+          const fullMsg = Gmail.Users.Messages.get('me', msg.getId(), { format: 'metadata', metadataHeaders: ['X-Campaign-ID', 'X-Row-ID'] });
           if (fullMsg && fullMsg.payload && fullMsg.payload.headers) {
             fullMsg.payload.headers.forEach(header => {
               if (header.name === 'X-Campaign-ID' && header.value === currentCampaignId) {
-                hasCampaignHeader = true;
+                threadHasCampaign = true;
               }
               if (header.name === 'X-Row-ID') {
                 matchedRowId = parseInt(header.value, 10);
@@ -228,16 +227,22 @@ function checkReplies() {
             });
           }
         } catch (e) {
-          // Skip if we can't fetch metadata
-          return;
+          continue;
         }
+        if (threadHasCampaign) break;
+      }
 
-        if (!hasCampaignHeader) return;
+      if (!threadHasCampaign) return;
 
-        // This thread is related to our campaign.
-        // Now find the reply messages (messages NOT from us in this thread)
+      // Second pass: process replies in this campaign thread
+      messages.forEach(msg => {
         const senderMatch = msg.getFrom().match(/<(.+)>/);
         const fromAddress = senderMatch ? senderMatch[1].toLowerCase() : msg.getFrom().toLowerCase();
+
+        // Skip messages sent by us
+        if (fromAddress === Session.getActiveUser().getEmail().toLowerCase() || getProperty(CONFIG.KEYS.SENDER_ALIAS)?.toLowerCase() === fromAddress) {
+          return;
+        }
 
         // If the message is FROM someone in our spreadsheet, it's a reply
         const rowInfo = emailToRow[fromAddress];
