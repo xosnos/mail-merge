@@ -139,14 +139,31 @@ function sendBatchEmails(config, startRow) {
       sheet.getRange(1, statusColIndex + 1).setValue('Merge status').setFontWeight('bold');
     }
 
+    const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
+    const data = dataRange.getValues();
+
+    // Calculate total valid rows to process
+    let totalToSend = 0;
+    for (let j = 0; j < data.length; j++) {
+      const row = data[j];
+      if (row.every(cell => !cell || String(cell).trim() === '')) continue;
+      const status = row[statusColIndex];
+      const email = String(row[emailColIndex]).trim();
+      if (!email || (status && status !== '')) continue;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) continue;
+      totalToSend++;
+    }
+
+    // Initialize progress Cache
+    const cache = CacheService.getDocumentCache();
+    cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: 0, total: totalToSend, status: 'sending' }), 600);
+
     const draft = GmailApp.getDraft(config.draftId);
     if (!draft) throw new Error('Draft not found.');
     const msg = draft.getMessage();
     const inlineContentIds = getInlineContentIds_(msg.getId());
     const attachments = msg.getAttachments({includeInlineImages: true});
-
-    const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
-    const data = dataRange.getValues();
 
     // Generate or retrieve campaign ID
     let campaignId;
@@ -175,9 +192,14 @@ function sendBatchEmails(config, startRow) {
           .after(60 * 1000) // resume in 1 minute
           .create();
 
+        cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }), 600);
+
         return {
           success: true,
-          message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 minute (timeout management).`
+          message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 minute (timeout management).`,
+          sentCount: sentCount,
+          total: totalToSend,
+          status: 'paused'
         };
       }
 
@@ -249,6 +271,8 @@ function sendBatchEmails(config, startRow) {
         Gmail.Users.Messages.send({ raw: raw }, 'me');
         sheet.getRange(i + 2, statusColIndex + 1).setValue('Sent');
         sentCount++;
+        // Update Cache periodically
+        cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }), 600);
       } catch (e) {
         sheet.getRange(i + 2, statusColIndex + 1).setValue('Error: ' + e.message);
       }
@@ -258,10 +282,18 @@ function sendBatchEmails(config, startRow) {
     PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
     PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.BATCH_CONFIG);
 
+    // Update progress on completion
+    cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'complete' }), 600);
+
     // Enable background scanning since toggle is removed
     setupAnalyticsTrigger();
 
-    return { success: true, message: `Successfully sent ${sentCount} emails.` };
+    return { 
+      success: true, 
+      message: `Successfully sent ${sentCount} emails.`,
+      sentCount: sentCount,
+      total: totalToSend
+    };
   } catch (err) {
     return { success: false, message: err.message };
   }
@@ -296,4 +328,17 @@ function resumeBatchSend() {
   console.log('resumeBatchSend: Resuming from row index ' + startRowIndex);
   const result = sendBatchEmails(config, startRowIndex);
   console.log('resumeBatchSend result: ' + JSON.stringify(result));
+}
+
+/**
+ * Reads the current progress from CacheService.
+ * @returns {Object} JSON object with current, total, and status
+ */
+function getMergeProgress() {
+  const cache = CacheService.getDocumentCache();
+  const progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
+  if (!progressStr) {
+    return { current: 0, total: 0, status: 'idle' };
+  }
+  return JSON.parse(progressStr);
 }
