@@ -153,6 +153,12 @@
       <input type="text" id="webAppUrl" placeholder="https://script.google.com/macros/s/.../exec">
     </div>
 
+    <div class="form-group section-divider">
+      <label for="scheduleDate">Schedule Send (Optional)</label>
+      <input type="datetime-local" id="scheduleDate" style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; margin-top: 5px;">
+      <p style="font-size: 11px; margin-top: 5px; color: #666; margin-bottom: 0;">Select a future date &amp; time to schedule your emails. Leave empty to send immediately.</p>
+    </div>
+
     <button id="btnTest" class="btn" style="background-color: #f1f3f4; color: #333; margin-top: 20px;" disabled>Send Test Email</button>
     <button id="btnSend" class="btn" disabled>Send Emails</button>
     
@@ -183,6 +189,16 @@
         document.getElementById('draftSelect').addEventListener('change', handleDraftSelection);
         document.getElementById('emailColumn').addEventListener('change', function(e) {
              // Save email column preference
+        });
+        document.getElementById('scheduleDate').addEventListener('change', function(e) {
+             var btnSend = document.getElementById('btnSend');
+             if (e.target.value) {
+                 btnSend.innerText = 'Schedule Emails';
+                 btnSend.style.backgroundColor = '#4285F4';
+             } else {
+                 btnSend.innerText = 'Send Emails';
+                 btnSend.style.backgroundColor = '#0F9D58';
+             }
         });
         document.getElementById('refreshDraftsBtn').addEventListener('click', function(e) {
           e.preventDefault();
@@ -225,7 +241,8 @@
            senderAlias: document.getElementById('senderAlias').value,
            replyTo: document.getElementById('replyTo').value,
            emailColumn: document.getElementById('emailColumn').value,
-           webAppUrl: document.getElementById('webAppUrl').value
+           webAppUrl: document.getElementById('webAppUrl').value,
+           scheduleDate: document.getElementById('scheduleDate').value
          };
       }
       
@@ -241,13 +258,23 @@
          var btnSend = document.getElementById('btnSend');
          btnTest.disabled = true;
          btnSend.disabled = true;
+
+         if (!isTest && config.scheduleDate) {
+             var scheduleTime = new Date(config.scheduleDate).getTime();
+             if (scheduleTime <= Date.now()) {
+                 showStatus('Scheduled time must be in the future.', true);
+                 btnTest.disabled = false;
+                 btnSend.disabled = false;
+                 return;
+             }
+         }
          
-         var actionMsg = isTest ? 'Sending test email to yourself...' : 'Sending batch emails...';
+         var actionMsg = isTest ? 'Sending test email to yourself...' : (config.scheduleDate ? 'Scheduling campaign...' : 'Sending batch emails...');
          showStatus(actionMsg);
          
-         var backendFunc = isTest ? 'sendTestEmail' : 'sendBatchEmails';
+         var backendFunc = isTest ? 'sendTestEmail' : (config.scheduleDate ? 'scheduleBatchEmails' : 'sendBatchEmails');
          
-         if (!isTest) {
+         if (!isTest && backendFunc === 'sendBatchEmails') {
             document.getElementById('progressContainer').style.display = 'block';
             updateProgressBar(0, 0, 'Starting...');
             if (pollInterval) clearInterval(pollInterval);
@@ -258,7 +285,7 @@
            .withSuccessHandler(function(response) {
                if (response.success) {
                   showStatus(response.message);
-                  if (!isTest) {
+                  if (!isTest && backendFunc === 'sendBatchEmails') {
                      var count = response.sentCount !== undefined ? response.sentCount : 100;
                      var total = response.total !== undefined ? response.total : 100;
                      updateProgressBar(count, total, 'complete');
@@ -272,8 +299,10 @@
                btnSend.disabled = false;
                if (pollInterval) clearInterval(pollInterval);
                
-               if (response.success && !isTest) {
+               if (response.success && !isTest && backendFunc === 'sendBatchEmails') {
                    setTimeout(function() { document.getElementById('statusBox').style.display = 'none'; document.getElementById('progressContainer').style.display = 'none'; }, 5000);
+               } else if (response.success && !isTest && backendFunc === 'scheduleBatchEmails') {
+                   setTimeout(function() { document.getElementById('statusBox').style.display = 'none'; }, 5000);
                }
            })
            .withFailureHandler(function(error) {

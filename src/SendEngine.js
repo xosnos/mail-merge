@@ -342,3 +342,72 @@ function getMergeProgress() {
   }
   return JSON.parse(progressStr);
 }
+
+/**
+ * Schedules a batch of emails to be sent at a future date and time.
+ * @param {Object} config The settings from the UI
+ * @returns {Object} {success: boolean, message: string}
+ */
+function scheduleBatchEmails(config) {
+  try {
+    const scheduleTime = new Date(config.scheduleDate).getTime();
+    if (scheduleTime <= Date.now()) {
+      throw new Error('Scheduled time must be in the future.');
+    }
+
+    // Pre-flight validation
+    const validation = validateTemplate(config.draftId);
+    if (!validation.isValid) {
+      return { success: false, message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ') };
+    }
+
+    // Save the config for the scheduled run
+    setProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, JSON.stringify(config));
+
+    // Clear any existing scheduled triggers just in case (single campaign assumption)
+    const triggers = ScriptApp.getProjectTriggers();
+    triggers.forEach(t => {
+      if (t.getHandlerFunction() === 'startScheduledBatchSend') {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+
+    // Create the trigger
+    ScriptApp.newTrigger('startScheduledBatchSend')
+      .timeBased()
+      .at(new Date(scheduleTime))
+      .create();
+
+    const formattedDate = new Date(scheduleTime).toLocaleString();
+    return { success: true, message: `Campaign successfully scheduled for ${formattedDate}` };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * Invoked by a time-driven trigger to start a scheduled batch.
+ */
+function startScheduledBatchSend() {
+  // Delete the trigger that called us
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(t => {
+    if (t.getHandlerFunction() === 'startScheduledBatchSend') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+
+  // Retrieve saved configuration
+  const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
+  if (!configJson) {
+    console.log('startScheduledBatchSend: No scheduled config found.');
+    return;
+  }
+
+  const config = JSON.parse(configJson);
+  PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
+
+  console.log('startScheduledBatchSend: Starting scheduled batch send.');
+  const result = sendBatchEmails(config, 0);
+  console.log('startScheduledBatchSend result: ' + JSON.stringify(result));
+}
