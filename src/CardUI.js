@@ -46,7 +46,7 @@ function buildHomepageCard(e) {
 
   const refreshDraftsBtn = CardService.newTextButton()
     .setText("🔄 Refresh Drafts")
-    .setOnClickAction(CardService.newAction().setFunctionName("buildHomepageCard"));
+    .setOnClickAction(CardService.newAction().setFunctionName("handleRefreshUI"));
 
   configSection.addWidget(draftSelect);
   configSection.addWidget(CardService.newButtonSet().addButton(refreshDraftsBtn));
@@ -62,8 +62,11 @@ function buildHomepageCard(e) {
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle("Sender Email")
     .setFieldName("senderAlias");
-  aliases.forEach(alias => {
-    aliasSelect.addItem(alias, alias, alias === props[CONFIG.KEYS.SENDER_ALIAS]);
+    
+  const savedAlias = props[CONFIG.KEYS.SENDER_ALIAS];
+  aliases.forEach((alias, index) => {
+    const isSelected = savedAlias ? alias === savedAlias : index === 0;
+    aliasSelect.addItem(alias, alias, isSelected);
   });
   configSection.addWidget(aliasSelect);
 
@@ -140,6 +143,14 @@ function buildHomepageCard(e) {
 /**
  * Action handlers
  */
+
+function handleRefreshUI(e) {
+  const updatedCard = buildHomepageCard(e);
+  
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(updatedCard))
+    .build();
+}
 
 function handleDraftChange(e) {
   const draftId = e.formInput.draftId;
