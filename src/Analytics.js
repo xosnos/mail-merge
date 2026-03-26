@@ -82,7 +82,7 @@ function checkBounces() {
     const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID) || '';
 
     // Search for recent bounce messages
-    const threads = GmailApp.search('from:mailer-daemon in:inbox newer_than:2d');
+    const threads = GmailApp.search('from:mailer-daemon in:inbox newer_than:7d');
     const bouncedEmails = {};
 
     threads.forEach(thread => {
@@ -313,7 +313,7 @@ function setupAnalyticsTrigger() {
 
     const trigger = ScriptApp.newTrigger('runAnalyticsScanner')
       .timeBased()
-      .everyMinutes(15)
+      .everyHours(3)
       .create();
 
     setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId());
