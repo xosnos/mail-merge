@@ -4,63 +4,6 @@
  */
 
 /**
- * Backend Web App webhook to receive pixel tracking data.
- * The client loads <img src="URL?sheetId=...&row=5" />
- */
-function doGet(e) {
-  try {
-    console.log('doGet hit with params:', JSON.stringify(e.parameter));
-    if (!e.parameter.sheetId || !e.parameter.row) {
-      console.log('Missing parameters.');
-      return ContentService.createTextOutput('Missing parameters.');
-    }
-
-    const ss = SpreadsheetApp.openById(e.parameter.sheetId);
-    if (!ss) {
-      console.log('Sheet not found.');
-      return ContentService.createTextOutput('Sheet not found.');
-    }
-
-    // Default to the first sheet, or use parameter if provided
-    let sheet;
-    if (e.parameter.sheetName) {
-      sheet = ss.getSheetByName(e.parameter.sheetName);
-    }
-    if (!sheet) {
-      sheet = ss.getSheets()[0];
-    }
-
-    const rowIndex = parseInt(e.parameter.row, 10);
-    console.log(`Processing rowIndex: ${rowIndex} on sheet: ${sheet.getName()}`);
-
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
-
-    if (statusColIndex !== -1 && rowIndex > 1) {
-      const existingVal = String(sheet.getRange(rowIndex, statusColIndex + 1).getValue()).trim();
-      console.log(`Existing value found: '${existingVal}'`);
-
-      // Only update to "Opened" if currently "Sent" or already "Opened" (update timestamp)
-      // Never overwrite "Replied" or "Bounced"
-      const lower = existingVal.toLowerCase();
-      if (lower === 'sent' || lower.includes('opened')) {
-        const tz = ss.getSpreadsheetTimeZone() || 'GMT';
-        const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
-        sheet.getRange(rowIndex, statusColIndex + 1).setValue(`Opened ${timeString}`);
-        console.log('Successfully updated cell to Opened');
-      } else {
-        console.log(`Skipped updating because value was: ${existingVal}`);
-      }
-    } else {
-      console.log('Merge status column missing or row invalid.');
-    }
-  } catch (err) {
-    console.log('doGet Error: ' + err.message);
-  }
-  return ContentService.createTextOutput('OK');
-}
-
-/**
  * Scans Gmail for bounces (mailer-daemon) and cross-references with the active sheet.
  * Improved: attempts to match via X-Campaign-ID header in the NDR, falls back to email regex.
  * @returns {Object} { success: boolean, message: string, bounceCount: number }
@@ -343,5 +286,49 @@ function removeAnalyticsTrigger() {
     return { success: true, message: 'Background scanning disabled.' };
   } catch (err) {
     return { success: false, message: err.message };
+  }
+}
+
+
+/**
+ * Calculates campaign metrics based on the "Merge status" column.
+ * @returns {Object} { total: number, sent: number, opened: number, replied: number, bounced: number }
+ */
+function getCampaignMetrics() {
+  const metrics = { total: 0, sent: 0, opened: 0, replied: 0, bounced: 0, error: null };
+  try {
+    const sheet = SpreadsheetApp.getActiveSheet();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return metrics;
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
+
+    if (statusColIndex === -1) return metrics;
+
+    const statusRange = sheet.getRange(2, statusColIndex + 1, lastRow - 1, 1);
+    const statuses = statusRange.getValues();
+
+    statuses.forEach(row => {
+      const status = String(row[0]).trim().toLowerCase();
+      if (!status) return; // Skip empty statuses
+
+      metrics.total++;
+      if (status.includes('bounced')) {
+        metrics.bounced++;
+      } else if (status.includes('replied')) {
+        metrics.replied++;
+        metrics.opened++; // A reply implies an open
+      } else if (status.includes('opened')) {
+        metrics.opened++;
+      } else if (status.includes('sent')) {
+        metrics.sent++;
+      }
+    });
+
+    return metrics;
+  } catch (err) {
+    metrics.error = err.message;
+    return metrics;
   }
 }

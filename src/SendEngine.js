@@ -109,7 +109,6 @@ function sendBatchEmails(config, startRow) {
     setProperty(CONFIG.KEYS.SENDER_ALIAS, config.senderAlias || '');
     setProperty(CONFIG.KEYS.REPLY_TO, config.replyTo || '');
     setProperty(CONFIG.KEYS.EMAIL_COLUMN, config.emailColumn);
-    setProperty(CONFIG.KEYS.WEB_APP_URL, config.webAppUrl || '');
 
     // Check quota
     const quota = MailApp.getRemainingDailyQuota();
@@ -235,11 +234,27 @@ function sendBatchEmails(config, startRow) {
       let htmlBody = replaceVariables(msg.getBody(), headers, row);
       const plainBody = replaceVariables(msg.getPlainBody(), headers, row);
 
-      // Append tracking pixel if URL is provided
-      if (config.webAppUrl) {
+      // Append tracking pixel if central tracking is configured
+      if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.CENTRAL_URL !== 'YOUR_CENTRAL_WEB_APP_URL_HERE') {
         const sheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
         const sheetName = encodeURIComponent(sheet.getName());
-        const pixelUrl = `${config.webAppUrl}?sheetId=${sheetId}&sheetName=${sheetName}&row=${i + 2}&t=${Date.now()}`;
+        const rowNum = i + 2;
+        
+        let col = statusColIndex;
+        let colLetters = "";
+        while (col >= 0) {
+          colLetters = String.fromCharCode(65 + (col % 26)) + colLetters;
+          col = Math.floor(col / 26) - 1;
+        }
+        const cell = `${colLetters}${rowNum}`;
+        const user = Session.getActiveUser().getEmail();
+        
+        const payload = [sheetId, sheet.getName(), cell, user].join('|');
+        const sig = Utilities.base64EncodeWebSafe(
+          Utilities.computeHmacSha256Signature(payload, CONFIG.TRACKING.SECRET_KEY)
+        );
+        
+        const pixelUrl = `${CONFIG.TRACKING.CENTRAL_URL}?sheetId=${sheetId}&sheetName=${sheetName}&cell=${cell}&user=${encodeURIComponent(user)}&sig=${sig}`;
         const safePixelUrl = pixelUrl.replace(/&/g, '&amp;');
         const imgTag = `<img src="${safePixelUrl}" alt="" width="1" height="1" border="0" />`;
 

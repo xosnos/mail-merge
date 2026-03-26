@@ -99,13 +99,44 @@ function buildHomepageCard(e) {
 
   builder.addSection(configSection);
 
+  // Analytics Section
+  const metrics = typeof getCampaignMetrics === 'function' ? getCampaignMetrics() : null;
+  if (metrics && metrics.total > 0) {
+    const analyticsSection = CardService.newCardSection().setHeader("📊 Campaign Analytics");
+
+    // Helper to calculate percentage safely
+    const getPercent = (part, total) => total > 0 ? ((part / total) * 100).toFixed(1) + "%" : "0%";
+
+    const sentStr = `${metrics.sent + metrics.opened + metrics.bounced} / ${metrics.total}`;
+    const openStr = `${metrics.opened} (${getPercent(metrics.opened, metrics.total)})`;
+    const replyStr = `${metrics.replied} (${getPercent(metrics.replied, metrics.total)})`;
+    const bounceStr = `${metrics.bounced} (${getPercent(metrics.bounced, metrics.total)})`;
+
+    analyticsSection.addWidget(CardService.newKeyValue()
+      .setTopLabel("Total Processed")
+      .setContent(metrics.total.toString())
+      .setIcon(CardService.Icon.EMAIL));
+
+    analyticsSection.addWidget(CardService.newKeyValue()
+      .setTopLabel("Opened")
+      .setContent(openStr)
+      .setIcon(CardService.Icon.EVENT_PER_DAY));
+
+    analyticsSection.addWidget(CardService.newKeyValue()
+      .setTopLabel("Replied")
+      .setContent(replyStr)
+      .setIcon(CardService.Icon.PEOPLE));
+
+    analyticsSection.addWidget(CardService.newKeyValue()
+      .setTopLabel("Bounced")
+      .setContent(bounceStr)
+      .setIcon(CardService.Icon.ERROR));
+
+    builder.addSection(analyticsSection);
+  }
+
   // Advanced Section
   const advancedSection = CardService.newCardSection().setHeader("Advanced & Analytics");
-
-  advancedSection.addWidget(CardService.newTextInput()
-    .setTitle("Analytics: Web App Tracking URL (Optional)")
-    .setFieldName("webAppUrl")
-    .setValue(props[CONFIG.KEYS.WEB_APP_URL] || ""));
 
   advancedSection.addWidget(CardService.newDateTimePicker()
     .setTitle("Schedule Send (Optional)")
@@ -194,7 +225,6 @@ function extractConfigFromEvent(e) {
     senderAlias: e.formInput.senderAlias || "",
     emailColumn: e.formInput.emailColumn || "",
     replyTo: e.formInput.replyTo || "",
-    webAppUrl: e.formInput.webAppUrl || "",
     scheduleDate: scheduleDate
   };
 }
@@ -251,10 +281,12 @@ function handleSendEmails(e) {
 
 function handleRefreshAnalytics(e) {
   const result = runAnalyticsScanner();
+  const updatedCard = buildHomepageCard(e);
   
   return CardService.newActionResponseBuilder()
     .setNotification(CardService.newNotification()
       .setText(result.message)
       .setType(result.success ? CardService.NotificationType.INFO : CardService.NotificationType.WARNING))
+    .setNavigation(CardService.newNavigation().updateCard(updatedCard))
     .build();
 }
