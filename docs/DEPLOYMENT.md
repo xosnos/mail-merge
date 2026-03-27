@@ -42,24 +42,22 @@ In the GCP Console for your new project:
 
 ## Phase 3: Deployment & Publishing
 
-### 1. Deploy the Web App (For Open Tracking)
-The Web App needs to be deployed so the pixel tracking system has a URL to receive data.
-1. In the Apps Script Editor, click **Deploy > New deployment**.
-2. Click the gear icon next to "Select type" and choose **Web app**.
-3. Set **Execute as** to **User deploying the web app (Me)**.
-4. Set **Who has access** to **Anyone**. (This allows the tracking pixel in emails to reach the app without the recipient logging in).
-5. Click **Deploy**.
-6. **Important:** Copy the resulting **Web App URL**. Your users will need to paste this into the Add-on's UI (Advanced Settings) to enable open tracking.
+### 1. Deploy the Central Tracker (For Open Tracking)
+The Central Tracker Web App needs to be deployed so the pixel tracking system has a URL to receive data. This is done ONCE for the whole organization.
+1. Follow the [Central Tracker Setup Guide](./CENTRAL_TRACKING_SETUP.md) to deploy the central tracker script and obtain its URL.
+2. Update `src/Config.js` in the add-on codebase with the Central Web App URL.
+3. Push the add-on code using `clasp push`.
 
 ### 2. Publish the Workspace Add-on
 1. Go back to your Google Cloud Console.
 2. Navigate to **APIs & Services > Google Workspace Marketplace SDK**.
-3. Go to the **App Integration** tab.
+3. Go to the **App Configuration** tab.
 4. Select **Google Sheets add-on**.
-5. You may be asked for a **Script ID** or **Deployment ID**. Provide the Apps Script ID found in Project Settings.
+5. Provide the **Script ID** or **Deployment ID**. Found in Project Settings.
 6. Under the **Store Listing** tab, fill out all required fields (Name, Short description, Category, Graphics/Logos).
-7. Set the application visibility to **Private** (so it only publishes to `unavsa.org` users).
-8. Click **Publish**.
+7. Use the UNAVSA logo for the icon: `https://media.unavsa.org/uploads/2021/03/cropped-UNAVSA-Logo-original.png`.
+8. Set the application visibility to **Private** (so it only publishes to `unavsa.org` users).
+9. Click **Publish**.
 
 ### 3. Installation
 Once published privately, users within your organization can install it:

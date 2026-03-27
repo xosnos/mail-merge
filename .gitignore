@@ -1,10 +1,14 @@
 # Google Apps Script (clasp) — local deployment IDs; do not publish publicly
-src/.clasp.json
+*/.clasp.json
 
 # Environment and secrets
 .env
 .env.*
 !.env.example
+*-key.json
+*.key.json
+service-account*.json
+credentials.json
 
 # macOS
 .DS_Store
@@ -15,3 +19,4 @@ node_modules/
 # Logs
 *.log
 npm-debug.log*
+.omc/

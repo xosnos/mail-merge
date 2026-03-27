@@ -11,6 +11,7 @@
 function buildHomepageCard(e) {
   initializeSheet();
   
+  const config = extractConfigFromEvent(e);
   const builder = CardService.newCardBuilder();
   builder.setHeader(CardService.newCardHeader().setTitle("UNAVSA Mail Merge"));
 
@@ -37,7 +38,9 @@ function buildHomepageCard(e) {
     draftSelect.addItem("No Drafts Found", "", false);
   } else {
     drafts.forEach(draft => {
-      draftSelect.addItem(draft.subject || "(No Subject)", draft.id, draft.id === props[CONFIG.KEYS.SELECTED_DRAFT_ID]);
+      const draftId = draft.id;
+      const selectedDraftId = config.draftId || props[CONFIG.KEYS.SELECTED_DRAFT_ID];
+      draftSelect.addItem(draft.subject || "(No Subject)", draftId, draftId === selectedDraftId);
     });
   }
   
@@ -55,7 +58,7 @@ function buildHomepageCard(e) {
   configSection.addWidget(CardService.newTextInput()
     .setTitle("Sender Name")
     .setFieldName("senderName")
-    .setValue(props[CONFIG.KEYS.SENDER_NAME] || ""));
+    .setValue(config.senderName || props[CONFIG.KEYS.SENDER_NAME] || ""));
 
   // Sender Email
   const aliasSelect = CardService.newSelectionInput()
@@ -63,7 +66,7 @@ function buildHomepageCard(e) {
     .setTitle("Sender Email")
     .setFieldName("senderAlias");
     
-  const savedAlias = props[CONFIG.KEYS.SENDER_ALIAS];
+  const savedAlias = config.senderAlias || props[CONFIG.KEYS.SENDER_ALIAS];
   aliases.forEach((alias, index) => {
     const isSelected = savedAlias ? alias === savedAlias : index === 0;
     aliasSelect.addItem(alias, alias, isSelected);
@@ -80,9 +83,10 @@ function buildHomepageCard(e) {
     emailColSelect.addItem("No columns found", "", false);
   } else {
     let foundEmailCol = false;
+    const savedEmailCol = config.emailColumn || props[CONFIG.KEYS.EMAIL_COLUMN];
     headers.forEach(header => {
       if (!header) return;
-      const isSaved = header === props[CONFIG.KEYS.EMAIL_COLUMN];
+      const isSaved = header === savedEmailCol;
       const isAutoEmail = !foundEmailCol && header.toLowerCase().includes('email');
       const selected = isSaved || isAutoEmail;
       if (selected) foundEmailCol = true;
@@ -95,7 +99,7 @@ function buildHomepageCard(e) {
   configSection.addWidget(CardService.newTextInput()
     .setTitle("Reply-To Address (Optional)")
     .setFieldName("replyTo")
-    .setValue(props[CONFIG.KEYS.REPLY_TO] || ""));
+    .setValue(config.replyTo || props[CONFIG.KEYS.REPLY_TO] || ""));
 
   builder.addSection(configSection);
 
@@ -138,9 +142,21 @@ function buildHomepageCard(e) {
   // Advanced Section
   const advancedSection = CardService.newCardSection().setHeader("Advanced & Analytics");
 
-  advancedSection.addWidget(CardService.newDateTimePicker()
+  let tzOffsetMins = 0;
+  if (e && e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.offset) {
+    tzOffsetMins = e.commonEventObject.timeZone.offset / 60000;
+  }
+
+  const dateTimePicker = CardService.newDateTimePicker()
     .setTitle("Schedule Send (Optional)")
-    .setFieldName("scheduleDate"));
+    .setFieldName("scheduleDate")
+    .setOnChangeAction(CardService.newAction().setFunctionName("handleRefreshUI"));
+    
+  if (tzOffsetMins !== 0) {
+    dateTimePicker.setTimeZoneOffsetInMins(tzOffsetMins);
+  }
+
+  advancedSection.addWidget(dateTimePicker);
 
   builder.addSection(advancedSection);
 
@@ -151,10 +167,14 @@ function buildHomepageCard(e) {
     .setText("Send Test Email")
     .setOnClickAction(CardService.newAction().setFunctionName("handleTestEmail"));
 
+  const isScheduled = config.scheduleDate && config.scheduleDate !== "";
+  const btnSendText = isScheduled ? "Schedule Emails" : "Send Emails";
+  const btnSendColor = isScheduled ? "#4285F4" : "#0F9D58"; // Blue if scheduled, Green if immediate
+
   const btnSend = CardService.newTextButton()
-    .setText("Send Emails")
+    .setText(btnSendText)
     .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-    .setBackgroundColor("#0F9D58")
+    .setBackgroundColor(btnSendColor)
     .setOnClickAction(CardService.newAction().setFunctionName("handleSendEmails"));
     
   const btnRefresh = CardService.newTextButton()
@@ -204,28 +224,45 @@ function handleDraftChange(e) {
 }
 
 function extractConfigFromEvent(e) {
-  let scheduleDate = "";
-  if (e.formInput.scheduleDate) {
-    const rawVal = e.formInput.scheduleDate;
-    if (typeof rawVal === 'object' && rawVal.msSinceEpoch) {
-      scheduleDate = new Date(rawVal.msSinceEpoch).toISOString();
-    } else if (typeof rawVal === 'string' && !isNaN(Number(rawVal))) {
-      scheduleDate = new Date(Number(rawVal)).toISOString();
-    } else if (typeof rawVal === 'object') {
-      // In case CardService passes a raw object for DateTimePicker
-      scheduleDate = new Date(rawVal.msSinceEpoch || Number(rawVal.value) || 0).toISOString();
-    } else {
-      scheduleDate = String(rawVal);
+  const getFormValue = (fieldName) => {
+    // 1. Try commonEventObject (modern Workspace Add-on style)
+    if (e && e.commonEventObject && e.commonEventObject.formInputs && e.commonEventObject.formInputs[fieldName]) {
+      const input = e.commonEventObject.formInputs[fieldName];
+      
+      // Special handling for DateTimePicker
+      if (input.dateTimeInput) {
+        return input.dateTimeInput.msSinceEpoch ? new Date(Number(input.dateTimeInput.msSinceEpoch)).toISOString() : "";
+      }
+      
+      // Standard inputs (returns array, take first element)
+      const stringInputs = input.stringInputs;
+      if (stringInputs && stringInputs.value && stringInputs.value.length > 0) {
+        return stringInputs.value[0];
+      }
     }
-  }
+    
+    // 2. Try legacy formInput (classic style)
+    if (e && e.formInput && e.formInput[fieldName]) {
+      const rawVal = e.formInput[fieldName];
+      
+      // Handle DateTimePicker objects in legacy formInput
+      if (typeof rawVal === 'object' && rawVal.msSinceEpoch) {
+        return new Date(Number(rawVal.msSinceEpoch)).toISOString();
+      }
+      
+      return String(rawVal);
+    }
+    
+    return "";
+  };
 
   return {
-    draftId: e.formInput.draftId || "",
-    senderName: e.formInput.senderName || "",
-    senderAlias: e.formInput.senderAlias || "",
-    emailColumn: e.formInput.emailColumn || "",
-    replyTo: e.formInput.replyTo || "",
-    scheduleDate: scheduleDate
+    draftId: getFormValue("draftId"),
+    senderName: getFormValue("senderName"),
+    senderAlias: getFormValue("senderAlias"),
+    emailColumn: getFormValue("emailColumn"),
+    replyTo: getFormValue("replyTo"),
+    scheduleDate: getFormValue("scheduleDate")
   };
 }
 
@@ -263,7 +300,9 @@ function handleSendEmails(e) {
   let result;
   if (config.scheduleDate && config.scheduleDate !== "") {
       const ms = new Date(config.scheduleDate).getTime();
-      if (!isNaN(ms) && ms > Date.now()) {
+      const now = Date.now();
+      // Allow a 60-second grace period for "future" checks to account for UI lag/clock drift
+      if (!isNaN(ms) && ms > (now - 60000)) {
           result = scheduleBatchEmails(config);
       } else {
           result = { success: false, message: "Scheduled time must be in the future." };
