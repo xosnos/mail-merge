@@ -235,7 +235,7 @@ function sendBatchEmails(config, startRow) {
       const plainBody = replaceVariables(msg.getPlainBody(), headers, row);
 
       // Append tracking pixel if central tracking is configured
-      if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.CENTRAL_URL !== 'YOUR_CENTRAL_WEB_APP_URL_HERE') {
+      if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.SECRET_KEY) {
         const sheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
         const sheetName = encodeURIComponent(sheet.getName());
         const rowNum = i + 2;
@@ -249,7 +249,7 @@ function sendBatchEmails(config, startRow) {
         const cell = `${colLetters}${rowNum}`;
         const user = Session.getActiveUser().getEmail();
         
-        const payload = [sheetId, sheet.getName(), cell, user].join('|');
+        const payload = JSON.stringify({ sheetId, sheetName: sheet.getName(), cell, user });
         const sig = Utilities.base64EncodeWebSafe(
           Utilities.computeHmacSha256Signature(payload, CONFIG.TRACKING.SECRET_KEY)
         );
@@ -366,7 +366,9 @@ function getMergeProgress() {
 function scheduleBatchEmails(config) {
   try {
     const scheduleTime = new Date(config.scheduleDate).getTime();
-    if (scheduleTime <= Date.now()) {
+    const now = Date.now();
+    // Allow a 60-second grace period for "future" checks to account for UI lag/clock drift
+    if (scheduleTime <= (now - 60000)) {
       throw new Error('Scheduled time must be in the future.');
     }
 

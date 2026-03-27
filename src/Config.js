@@ -18,8 +18,8 @@ const CONFIG = {
     PROGRESS_CACHE: 'YAMM_CLONE_PROGRESS'
   },
   TRACKING: {
-    CENTRAL_URL: 'YOUR_CENTRAL_WEB_APP_URL_HERE',
-    SECRET_KEY: 'UNAVSA_TRACKER_SECRET_KEY_2024'
+    get CENTRAL_URL() { return PropertiesService.getScriptProperties().getProperty('TRACKING_CENTRAL_URL') || ''; },
+    get SECRET_KEY() { return PropertiesService.getScriptProperties().getProperty('TRACKING_SECRET_KEY') || ''; }
   }
 };
 
