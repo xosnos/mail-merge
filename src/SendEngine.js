@@ -144,6 +144,9 @@ function sendBatchEmails(config, startRow) {
     // Calculate total valid rows to process
     let totalToSend = 0;
     for (let j = 0; j < data.length; j++) {
+      // Skip hidden rows
+      if (sheet.isRowHiddenByUser(j + 2)) continue;
+
       const row = data[j];
       if (row.every(cell => !cell || String(cell).trim() === '')) continue;
       const status = row[statusColIndex];
@@ -201,6 +204,9 @@ function sendBatchEmails(config, startRow) {
           status: 'paused'
         };
       }
+
+      // Skip hidden rows
+      if (sheet.isRowHiddenByUser(i + 2)) continue;
 
       const row = data[i];
 
