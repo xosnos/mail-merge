@@ -1,0 +1,15 @@
+{
+  "name": "unavsa-mail-merge",
+  "version": "1.0.0",
+  "description": "UNAVSA Mail Merge Workspace Add-on and Central Tracker",
+  "private": true,
+  "scripts": {
+    "push:addon": "cd src && clasp push",
+    "push:tracker": "cd central-tracker && clasp push",
+    "pull:addon": "cd src && clasp pull",
+    "pull:tracker": "cd central-tracker && clasp pull"
+  },
+  "devDependencies": {
+    "@types/google-apps-script": "^1.0.83"
+  }
+}
