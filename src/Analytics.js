@@ -285,13 +285,16 @@ function setupAnalyticsTrigger() {
  */
 function removeAnalyticsTrigger() {
   try {
-    const triggers = ScriptApp.getProjectTriggers();
-
-    triggers.forEach(t => {
-      if (t.getHandlerFunction() === 'runAnalyticsScanner') {
-        ScriptApp.deleteTrigger(t);
-      }
-    });
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('runAnalyticsScanner');
+    } else {
+      const triggers = ScriptApp.getProjectTriggers();
+      triggers.forEach(t => {
+        if (t.getHandlerFunction() === 'runAnalyticsScanner') {
+          ScriptApp.deleteTrigger(t);
+        }
+      });
+    }
 
     PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID);
 

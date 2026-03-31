@@ -3,6 +3,84 @@
  */
 
 /**
+ * Cleans up orphaned time-driven triggers for this project.
+ * Limits the number of triggers for background functions to prevent hitting quota limits.
+ */
+function cleanupOrphanedTriggers() {
+  try {
+    const activeHandlers = ['startScheduledBatchSend', 'resumeBatchSend', 'runAnalyticsScanner'];
+    const seen = {};
+    
+    // Clean up project triggers
+    const projectTriggers = ScriptApp.getProjectTriggers();
+    projectTriggers.forEach(t => {
+      const handler = t.getHandlerFunction();
+      if (activeHandlers.includes(handler)) {
+        if (seen[handler]) {
+          ScriptApp.deleteTrigger(t);
+        } else {
+          seen[handler] = true;
+        }
+      } else if (t.getEventType() === ScriptApp.EventType.CLOCK) {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+
+    // Clean up document triggers (Add-on specific limits apply per document)
+    try {
+      const doc = SpreadsheetApp.getActiveSpreadsheet();
+      if (doc) {
+        const docTriggers = ScriptApp.getUserTriggers(doc);
+        docTriggers.forEach(t => {
+          const handler = t.getHandlerFunction();
+          if (activeHandlers.includes(handler)) {
+            if (seen[handler]) {
+              ScriptApp.deleteTrigger(t);
+            } else {
+              seen[handler] = true;
+            }
+          } else if (t.getEventType() === ScriptApp.EventType.CLOCK) {
+            ScriptApp.deleteTrigger(t);
+          }
+        });
+      }
+    } catch (docErr) {
+      console.error("Doc trigger cleanup ignored: " + docErr);
+    }
+    
+  } catch (err) {
+    console.error("Failed to clean up triggers: " + err);
+  }
+}
+
+function deleteTriggerByHandler(handlerName) {
+  try {
+    const projectTriggers = ScriptApp.getProjectTriggers();
+    projectTriggers.forEach(t => {
+      if (t.getHandlerFunction() === handlerName) {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+
+    try {
+      const doc = SpreadsheetApp.getActiveSpreadsheet();
+      if (doc) {
+        const docTriggers = ScriptApp.getUserTriggers(doc);
+        docTriggers.forEach(t => {
+          if (t.getHandlerFunction() === handlerName) {
+            ScriptApp.deleteTrigger(t);
+          }
+        });
+      }
+    } catch (e) {
+      // Ignore if not bound to doc
+    }
+  } catch (err) {
+    console.error("Failed to delete trigger: " + err);
+  }
+}
+
+/**
  * Validates the selected draft's variables against the active sheet's headers.
  * @param {string} draftId 
  * @returns {Object} { isValid: boolean, missingColumns: string[], variables: string[] }

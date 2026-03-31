@@ -85,7 +85,7 @@ function buildHomepageCard(e) {
     let foundEmailCol = false;
     const savedEmailCol = config.emailColumn || props[CONFIG.KEYS.EMAIL_COLUMN];
     headers.forEach(header => {
-      if (!header) return;
+      if (!header || header.toLowerCase() === 'merge status') return;
       const isSaved = header === savedEmailCol;
       const isAutoEmail = !foundEmailCol && header.toLowerCase().includes('email');
       const selected = isSaved || isAutoEmail;
@@ -143,8 +143,16 @@ function buildHomepageCard(e) {
   const advancedSection = CardService.newCardSection().setHeader("Advanced & Analytics");
 
   let tzOffsetMins = 0;
-  if (e && e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.offset) {
+  if (e && e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.offset !== undefined) {
     tzOffsetMins = e.commonEventObject.timeZone.offset / 60000;
+  } else {
+    // Fallback to script/spreadsheet timezone offset
+    const tz = Session.getScriptTimeZone();
+    const str = Utilities.formatDate(new Date(), tz, "Z"); // e.g. "-0700"
+    const sign = str.charAt(0) === '+' ? 1 : -1;
+    const hours = parseInt(str.substring(1, 3), 10);
+    const mins = parseInt(str.substring(3, 5), 10);
+    tzOffsetMins = sign * (hours * 60 + mins);
   }
 
   const dateTimePicker = CardService.newDateTimePicker()
@@ -154,6 +162,13 @@ function buildHomepageCard(e) {
     
   if (tzOffsetMins !== 0) {
     dateTimePicker.setTimeZoneOffsetInMins(tzOffsetMins);
+  }
+
+  if (config.scheduleDate && config.scheduleDate !== "") {
+    const ms = new Date(config.scheduleDate).getTime();
+    if (!isNaN(ms)) {
+      dateTimePicker.setValueInMsSinceEpoch(ms);
+    }
   }
 
   advancedSection.addWidget(dateTimePicker);
@@ -249,6 +264,24 @@ function extractConfigFromEvent(e) {
       if (typeof rawVal === 'object' && rawVal.msSinceEpoch) {
         return new Date(Number(rawVal.msSinceEpoch)).toISOString();
       }
+      if (typeof rawVal === 'object' && rawVal.msSinceEpoch !== undefined) {
+          return new Date(Number(rawVal.msSinceEpoch)).toISOString();
+      }
+      
+      // Some versions of Apps Script return a string representation of an object or just a string epoch
+      try {
+        const parsed = JSON.parse(rawVal);
+        if (parsed && parsed.msSinceEpoch) {
+          return new Date(Number(parsed.msSinceEpoch)).toISOString();
+        }
+      } catch (e) {
+        // Not JSON
+      }
+
+      // If it's a numeric string epoch
+      if (!isNaN(rawVal) && Number(rawVal) > 10000000000) {
+        return new Date(Number(rawVal)).toISOString();
+      }
       
       return String(rawVal);
     }
@@ -305,7 +338,7 @@ function handleSendEmails(e) {
       if (!isNaN(ms) && ms > (now - 60000)) {
           result = scheduleBatchEmails(config);
       } else {
-          result = { success: false, message: "Scheduled time must be in the future." };
+          result = { success: false, message: `Must be future. Selected: ${new Date(ms).toISOString()}, Now: ${new Date(now).toISOString()}, Input: ${config.scheduleDate}` };
       }
   } else {
       result = sendBatchEmails(config, 0);

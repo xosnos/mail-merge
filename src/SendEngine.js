@@ -103,6 +103,10 @@ function sendTestEmail(config) {
  */
 function sendBatchEmails(config, startRow) {
   try {
+    if ((!startRow || startRow === 0) && typeof cleanupOrphanedTriggers === 'function') {
+      cleanupOrphanedTriggers();
+    }
+    
     // Save state in case of UI reload
     setProperty(CONFIG.KEYS.SELECTED_DRAFT_ID, config.draftId);
     setProperty(CONFIG.KEYS.SENDER_NAME, config.senderName || '');
@@ -327,12 +331,16 @@ function sendBatchEmails(config, startRow) {
  */
 function resumeBatchSend() {
   // Delete the trigger that called us so it doesn't re-fire
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(t => {
-    if (t.getHandlerFunction() === 'resumeBatchSend') {
-      ScriptApp.deleteTrigger(t);
-    }
-  });
+  if (typeof deleteTriggerByHandler === 'function') {
+    deleteTriggerByHandler('resumeBatchSend');
+  } else {
+    const triggers = ScriptApp.getProjectTriggers();
+    triggers.forEach(t => {
+      if (t.getHandlerFunction() === 'resumeBatchSend') {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+  }
 
   // Retrieve saved state
   const lastRow = getProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
@@ -371,6 +379,8 @@ function getMergeProgress() {
  */
 function scheduleBatchEmails(config) {
   try {
+    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers();
+    
     const scheduleTime = new Date(config.scheduleDate).getTime();
     const now = Date.now();
     // Allow a 60-second grace period for "future" checks to account for UI lag/clock drift
@@ -388,12 +398,16 @@ function scheduleBatchEmails(config) {
     setProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, JSON.stringify(config));
 
     // Clear any existing scheduled triggers just in case (single campaign assumption)
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(t => {
-      if (t.getHandlerFunction() === 'startScheduledBatchSend') {
-        ScriptApp.deleteTrigger(t);
-      }
-    });
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('startScheduledBatchSend');
+    } else {
+      const triggers = ScriptApp.getProjectTriggers();
+      triggers.forEach(t => {
+        if (t.getHandlerFunction() === 'startScheduledBatchSend') {
+          ScriptApp.deleteTrigger(t);
+        }
+      });
+    }
 
     // Create the trigger
     ScriptApp.newTrigger('startScheduledBatchSend')
@@ -413,12 +427,16 @@ function scheduleBatchEmails(config) {
  */
 function startScheduledBatchSend() {
   // Delete the trigger that called us
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(t => {
-    if (t.getHandlerFunction() === 'startScheduledBatchSend') {
-      ScriptApp.deleteTrigger(t);
-    }
-  });
+  if (typeof deleteTriggerByHandler === 'function') {
+    deleteTriggerByHandler('startScheduledBatchSend');
+  } else {
+    const triggers = ScriptApp.getProjectTriggers();
+    triggers.forEach(t => {
+      if (t.getHandlerFunction() === 'startScheduledBatchSend') {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+  }
 
   // Retrieve saved configuration
   const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
