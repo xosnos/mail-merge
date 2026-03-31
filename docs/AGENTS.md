@@ -10,6 +10,8 @@ Project documentation covering product requirements, technical roadmap, deployme
 
 | File | Description |
 |------|-------------|
+| `ARCHITECTURE.md` | Technical overview of the decoupled Apps Script deployments, state management, and MIME engine |
+| `UX_DESIGN.md` | User journey, constraints of CardService, and interface logic |
 | `PRD.md` | Product Requirements Document — objectives, user personas, functional requirements, technical architecture |
 | `ROADMAP.md` | Technical roadmap across 6 phases from project setup through UI polish |
 | `DEPLOYMENT.md` | Step-by-step deployment guide — GCP setup, OAuth consent, CLASP config, Marketplace publishing |

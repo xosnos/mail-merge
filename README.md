@@ -20,8 +20,10 @@ A powerful, open-source Google Sheets add-on for personalized mail merges with a
 
 ### For Developers (Deploying)
 
-Detailed guides are located in the `docs/` directory:
+Detailed guides and architectural documentation are located in the `docs/` directory:
 
+- [Architecture Overview](./docs/ARCHITECTURE.md): Technical deep-dive into the decoupled system.
+- [User Experience Design](./docs/UX_DESIGN.md): The user journey, UI constraints, and flow.
 - [Deployment Guide](./docs/DEPLOYMENT.md): How to publish the add-on within your organization.
 - [Central Tracker Setup](./docs/CENTRAL_TRACKING_SETUP.md): How to set up the centralized open tracking system.
 

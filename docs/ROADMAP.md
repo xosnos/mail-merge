@@ -5,11 +5,10 @@
 This phase establishes the workspace, permissions, and basic UI shell.
 
 1. **Initialize the Environment:**
-    * Create a bound Google Apps Script project attached to a master Google Sheet template.
+    * Create a Google Apps Script project for the Workspace Add-on.
     * Configure `appsscript.json` (the manifest) to include explicit OAuth scopes required for the project (e.g., `https://mail.google.com/`, `https://www.googleapis.com/auth/script.send_mail`, `https://www.googleapis.com/auth/spreadsheets`).
-2. **Build the UI Shell (HTML Service):**
-    * Create a custom menu in Sheets (`onOpen` trigger) to launch the tool.
-    * Develop the Sidebar UI using HTML/CSS/JS. Set up asynchronous communication between the frontend sidebar and backend `.gs` files using `google.script.run`.
+2. **Build the UI Shell (CardService):**
+    * Develop the Sidebar UI using the Google Workspace Add-on `CardService`. Create the navigation flow and the basic configuration form elements.
 3. **Establish State Management:**
     * Set up a mechanism using `PropertiesService` (Document Properties) to store campaign settings (selected draft ID, sender alias, scheduled time) so the UI can retrieve the state if the user closes and reopens the sidebar.
 
@@ -47,9 +46,10 @@ This phase is the heavy lifting of mapping data and dispatching emails.
 This phase requires setting up external listeners and inbox parsers.
 
 1. **Deploy the Tracking Web App:**
-    * Create a `doGet(e)` function in your script. Deploy the script as a Web App (Execute as: User accessing the web app, Access: Anyone).
-    * **Pixel Injection:** During the send loop (Phase 3), append an invisible 1x1 image to the HTML body: `<img src="YOUR_WEB_APP_URL?row=123&camp=XYZ" />`.
-    * **Status Update:** When the Web App receives a ping, it parses the query parameters and updates the specific cell in the "Merge Status" column to "Opened" (unless it's already "Replied"). Return a 1x1 transparent GIF.
+    * Create a standalone Google Apps Script Web App (`central-tracker`).
+    * **Domain-Wide Delegation:** Configure a Google Cloud Service Account and use the `OAuth2` Apps Script library to grant the Tracker the ability to write to the sender's sheet.
+    * **Pixel Injection:** During the send loop (Phase 3), append an invisible 1x1 image to the HTML body pointing to the Tracker URL with HMAC-signed query parameters.
+    * **Status Update:** When the Web App receives a ping, it validates the HMAC signature, and updates the specific cell in the "Merge Status" column to "Opened" (unless it's already "Replied"). Return a 1x1 transparent GIF.
 2. **Build the Inbox Scanner (Replies & Bounces):**
     * Write a function to scan the user's inbox using `GmailApp.search()`.
     * *For Replies:* Search for emails in threads belonging to the campaign, or search by your custom `X-Campaign-ID` header.

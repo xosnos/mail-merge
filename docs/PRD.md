@@ -23,7 +23,7 @@ This internal tool enables non-technical users to execute personalized mass emai
 
 1. **Draft Creation:** The user opens Gmail, composes a new message, adds variables like `{{First Name}}`, configures CC/BCC, and leaves it in their Drafts folder.
 2. **Data Preparation:** The user opens the designated Google Sheet. Row 1 contains headers matching the variables in the draft (e.g., `First Name`, `Email`).
-3. **Tool Initialization:** The user clicks a custom menu in Sheets (e.g., `Mail Merge > Start`). A sidebar opens.
+3. **Tool Initialization:** The user clicks the Add-on icon in the right-hand Google Workspace sidebar.
 4. **Configuration:** In the sidebar, the user:
     * Selects the Gmail draft from a dropdown.
     * Inputs/selects "Sender Name", "Sender Email" (if they have aliases), and "Reply-To" email.
@@ -43,7 +43,7 @@ This internal tool enables non-technical users to execute personalized mass emai
 ### 5.2 Data Mapping & Execution (Google Sheets Integration)
 
 * **Column Matching:** The tool must map column headers in the active sheet to the `{{variables}}` found in the selected draft. (e.g., Column `Email` maps to recipient).
-* **Custom Menu & Sidebar:** An intuitive Google Sheets add-on UI (Sidebar) built with HTML/CSS/JS.
+* **Custom Menu & Sidebar:** An intuitive Google Workspace Add-on built with Google's CardService.
 * **Sender Configuration:** The sidebar must allow the user to define:
   * **Sender Name:** A custom text string.
   * **Sender Email:** Must populate a dropdown of the user's authorized Gmail aliases.
@@ -71,13 +71,13 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 
 ## 7. Technical Architecture Recommendations (For the Developer)
 
-* **Platform:** Google Apps Script (GAS) bound to a Google Sheet template, or deployed as an internal Workspace Add-on.
-* **UI Framework:** HTML Service for the sidebar. Consider a lightweight framework like Bootstrap or vanilla CSS for a clean, Google-like material design.
+* **Platform:** Google Workspace Add-on natively integrated into Google Sheets.
+* **UI Framework:** Google Apps Script `CardService` for a native Material Design sidebar experience.
 * **Sending Mechanism:** `GmailApp` or the Advanced Gmail API. *Note: Advanced Gmail API is highly recommended to easily manipulate headers (like `Message-ID` and `Reply-To`) and to inject the tracking pixel securely.*
 * **Tracking Implementation:**
   * *Web App Deployment:* Deploy a standalone GAS Web App that listens for `GET` requests.
   * *Pixel Injection:* Append `<img src="YOUR_WEB_APP_URL?id=UNIQUE_ROW_ID" width="1" height="1" />` to the draft's HTML body.
-  * *Webhook Handling:* When the pixel is loaded, the Web App receives the `id`, locates the corresponding row in the Sheet, and updates the status to "Opened".
+  * *Webhook Handling:* When the pixel is loaded, the Web App receives the `id`, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet, and updates the status to "Opened".
   * *Time-Driven Triggers:* Set up a background trigger (e.g., every 1 hour) that searches the user's inbox for replies (`in:inbox label:replied`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via Message-IDs.
 
 ---
