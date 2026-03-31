@@ -12,6 +12,8 @@
  * @param {string} opts.from          Sender email (alias or primary)
  * @param {string} [opts.senderName]  Display name for the From header
  * @param {string} [opts.replyTo]     Reply-To address
+ * @param {string} [opts.cc]          CC addresses
+ * @param {string} [opts.bcc]         BCC addresses
  * @param {string} opts.subject       Email subject line
  * @param {string} opts.plainBody     Plain-text body
  * @param {string} opts.htmlBody      HTML body
@@ -57,6 +59,14 @@ function buildMimeMessage(opts) {
 
   if (opts.replyTo) {
     headers.push('Reply-To: ' + opts.replyTo);
+  }
+
+  if (opts.cc) {
+    headers.push('Cc: ' + opts.cc);
+  }
+
+  if (opts.bcc) {
+    headers.push('Bcc: ' + opts.bcc);
   }
 
   headers.push('MIME-Version: 1.0');

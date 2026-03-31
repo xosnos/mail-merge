@@ -60,6 +60,8 @@ function sendTestEmail(config) {
     const subject = replaceVariables(msg.getSubject(), headers, testRow);
     const htmlBody = replaceVariables(msg.getBody(), headers, testRow);
     const plainBody = replaceVariables(msg.getPlainBody(), headers, testRow);
+    const cc = replaceVariables(msg.getCc(), headers, testRow);
+    const bcc = replaceVariables(msg.getBcc(), headers, testRow);
 
     // The recipient is the active user for tests
     const recipient = Session.getActiveUser().getEmail();
@@ -78,6 +80,8 @@ function sendTestEmail(config) {
       subject: subject,
       plainBody: plainBody,
       htmlBody: htmlBody,
+      cc: cc,
+      bcc: bcc,
       attachments: attachments,
       inlineContentIds: inlineContentIds,
       customHeaders: {
@@ -243,6 +247,8 @@ function sendBatchEmails(config, startRow) {
       const subject = replaceVariables(msg.getSubject(), headers, row);
       let htmlBody = replaceVariables(msg.getBody(), headers, row);
       const plainBody = replaceVariables(msg.getPlainBody(), headers, row);
+      const cc = replaceVariables(msg.getCc(), headers, row);
+      const bcc = replaceVariables(msg.getBcc(), headers, row);
 
       // Append tracking pixel if central tracking is configured
       if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.SECRET_KEY) {
@@ -284,6 +290,8 @@ function sendBatchEmails(config, startRow) {
         subject: subject,
         plainBody: plainBody,
         htmlBody: htmlBody,
+        cc: cc,
+        bcc: bcc,
         attachments: attachments,
         inlineContentIds: inlineContentIds,
         customHeaders: {
