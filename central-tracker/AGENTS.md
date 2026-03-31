@@ -10,7 +10,7 @@ A standalone Google Apps Script web app that serves as the centralized open trac
 
 | File | Description |
 |------|-------------|
-| `Tracker.js` | Main webhook handler — `doGet(e)` validates HMAC, authenticates via OAuth2 with domain-wide delegation, updates sheet cell |
+| `core/Tracker.js` | Main webhook handler — `doGet(e)` validates HMAC, authenticates via OAuth2 with domain-wide delegation, updates sheet cell |
 | `appsscript.json` | Manifest — OAuth2 library dependency (v43), required scopes (spreadsheets, external_request), web app config |
 | `.clasp.json` | CLASP deployment config for the tracker script |
 
@@ -38,8 +38,8 @@ A standalone Google Apps Script web app that serves as the centralized open trac
 ## Dependencies
 
 ### Internal
-- `src/SendEngine.js` — injects the tracking pixel URL with HMAC signature into outgoing emails
-- `src/Config.js` — `CONFIG.TRACKING` defines the tracker base URL and secret key reference
+- `src/services/SendEngine.js` — injects the tracking pixel URL with HMAC signature into outgoing emails
+- `src/core/Config.js` — `CONFIG.TRACKING` defines the tracker base URL and secret key reference
 
 ### External
 - OAuth2 for Apps Script library (ID: `1B7FSrk5Zi6L1rSxxTDgDEUsPzlukDsi4KGuTMorsTQHhGBzBkMun4iDF`, v43)

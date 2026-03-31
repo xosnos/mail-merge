@@ -13,6 +13,8 @@ A Google Workspace Add-on that enables personalized bulk email campaigns from Go
 | `AGENT.md` | Developer-Agent workflow guidelines and phase tracking |
 | `.gitignore` | Git ignore rules |
 | `mail-merge-tracker-key.json` | Service account key for central tracker OAuth2 |
+| `package.json` | Local dev scripts (e.g. `npm run push:addon`) |
+| `jsconfig.json` | IDE autocomplete configuration |
 
 ## Subdirectories
 
@@ -27,7 +29,7 @@ A Google Workspace Add-on that enables personalized bulk email campaigns from Go
 ### Working In This Directory
 - This is a Google Apps Script project using CLASP for local development
 - The `src/` and `central-tracker/` directories are **separate Apps Script deployments** with their own `.clasp.json` and `appsscript.json`
-- All backend code runs in Google Apps Script V8 runtime — no npm, no bundler, no modules
+- All backend code runs in Google Apps Script V8 runtime — no npm, no bundler, no modules (package.json is for local dev only)
 - Functions must be top-level (global scope) to be callable from triggers, UI actions, or web app endpoints
 - State is managed via `PropertiesService` and `CacheService`, not databases
 

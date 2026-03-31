@@ -43,24 +43,24 @@ sequenceDiagram
 
 This is the core application bound to the user's Google Workspace account. It runs entirely within the V8 runtime environment.
 
-### 1.1 UI Layer (`CardUI.js`)
+### 1.1 UI Layer (`src/ui/CardUI.js`)
 The user interface is built using the Google Workspace Add-on `CardService`. Unlike older HTML Service sidebars, CardService provides a native, consistent Google Material Design experience directly within the Google Sheets right-hand sidebar.
 *   **Trigger**: The UI is initialized via the `onOpen` or `homepageTrigger` defined in `appsscript.json`.
 *   **State**: The UI is stateless; it reads available drafts and sheet headers on load.
 
-### 1.2 State Management (`Config.js`)
+### 1.2 State Management (`src/core/Config.js`)
 Because Google Apps Script executions are stateless and have strict time limits, state must be persisted across executions.
 *   **PropertiesService**: Used to store long-term campaign configuration (Selected Draft ID, Sender Alias, Reply-To, Scheduled Time).
 *   **CacheService**: Used for short-term, high-frequency state, specifically caching the progress of a running batch so the UI can poll and display a progress bar.
 
-### 1.3 MIME Engine & Sending (`MimeBuilder.js` & `SendEngine.js`)
+### 1.3 MIME Engine & Sending (`src/utils/MimeBuilder.js` & `src/services/SendEngine.js`)
 The system uses the Advanced Gmail API (`Gmail.Users.Messages.send`) rather than `MailApp` or `GmailApp.sendEmail()`. This is crucial for tracking.
-*   **RFC 2822 Construction**: `MimeBuilder.js` manually constructs raw, multipart MIME messages encoded in URL-safe Base64. This allows for inline images, attachments, and most importantly, custom headers.
+*   **RFC 2822 Construction**: `src/utils/MimeBuilder.js` manually constructs raw, multipart MIME messages encoded in URL-safe Base64. This allows for inline images, attachments, and most importantly, custom headers.
 *   **Custom Headers**: During construction, the system injects `X-Campaign-ID` and `X-Row-ID` into the email headers. These are invisible to the recipient but essential for tracking replies and bounces.
 *   **Tracking Pixel Injection**: The HTML body is parsed, and an `<img>` tag pointing to the Central Tracker Web App is injected before the closing `</body>` tag.
-*   **Timeout Chunking**: GAS scripts timeout after 6 minutes. `SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
+*   **Timeout Chunking**: GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
 
-### 1.4 Background Analytics (`Analytics.js`)
+### 1.4 Background Analytics (`src/core/Analytics.js`)
 While opens are tracked instantly via the Central Tracker, replies and bounces are processed asynchronously by the sender's account.
 *   **Inbox Scanner**: A time-driven trigger runs periodically to scan the user's Gmail inbox.
 *   **Bounces**: Searches for `from:mailer-daemon` and parses the Non-Delivery Report (NDR) for the original `X-Campaign-ID` or `Message-ID`.
@@ -73,7 +73,7 @@ While opens are tracked instantly via the Central Tracker, replies and bounces a
 
 This is a globally accessible, standalone Apps Script project deployed as a Web App (`Execute as: Developer`, `Access: Anyone`).
 
-### 2.1 Webhook Endpoint (`Tracker.js`)
+### 2.1 Webhook Endpoint (`central-tracker/core/Tracker.js`)
 The app exposes a `doGet(e)` endpoint. When an email recipient opens an email, their mail client attempts to load the injected 1x1 image, hitting this URL with specific query parameters:
 *   `sheetId`: The ID of the sender's Google Sheet.
 *   `sheetName`: The specific tab name.

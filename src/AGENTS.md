@@ -10,13 +10,13 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 
 | File | Description |
 |------|-------------|
-| `Main.js` | Entry point — template validation (`validateTemplate`), sheet initialization (`initializeSheet`) |
-| `Config.js` | Global configuration constants, PropertiesService/CacheService helpers, tracking config |
-| `CardUI.js` | Workspace Add-on sidebar card builder — configuration form, analytics dashboard, action handlers |
-| `GmailService.js` | Gmail API helpers — fetches drafts, aliases, extracts `{{variables}}` from draft content |
-| `SendEngine.js` | Core batch send engine — variable substitution, quota management, timeout/resumption, tracking pixel injection |
-| `MimeBuilder.js` | RFC 2822 MIME message builder — multipart support, inline images, attachments, base64 encoding |
-| `Analytics.js` | Campaign analytics — bounce/reply detection via Gmail headers, metrics aggregation, background trigger setup |
+| `core/Main.js` | Entry point — template validation (`validateTemplate`), sheet initialization (`initializeSheet`) |
+| `core/Config.js` | Global configuration constants, PropertiesService/CacheService helpers, tracking config |
+| `ui/CardUI.js` | Workspace Add-on sidebar card builder — configuration form, analytics dashboard, action handlers |
+| `services/GmailService.js` | Gmail API helpers — fetches drafts, aliases, extracts `{{variables}}` from draft content |
+| `services/SendEngine.js` | Core batch send engine — variable substitution, quota management, timeout/resumption, tracking pixel injection |
+| `utils/MimeBuilder.js` | RFC 2822 MIME message builder — multipart support, inline images, attachments, base64 encoding |
+| `core/Analytics.js` | Campaign analytics — bounce/reply detection via Gmail headers, metrics aggregation, background trigger setup |
 | `appsscript.json` | Apps Script manifest — OAuth scopes, advanced services, add-on metadata |
 | `.clasp.json` | CLASP deployment config (script ID) |
 | `.clasp.json.example` | Template for `.clasp.json` setup |
@@ -25,16 +25,16 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 
 ### Working In This Directory
 - All files share a single global scope — no `import`/`export`, no modules
-- Functions called from `CardUI.js` action handlers must be top-level (e.g., `handleSendEmails`, `handleTestEmail`)
-- `Config.js` centralizes all PropertiesService keys in `CONFIG.KEYS` — always use these constants, never hardcode key strings
+- Functions called from `ui/CardUI.js` action handlers must be top-level (e.g., `handleSendEmails`, `handleTestEmail`)
+- `core/Config.js` centralizes all PropertiesService keys in `CONFIG.KEYS` — always use these constants, never hardcode key strings
 - Tracking secrets are stored in PropertiesService (not in code) for security
-- The `CONFIG.TRACKING` object in `Config.js` holds the centralized tracker URL and references the secret key
+- The `CONFIG.TRACKING` object in `core/Config.js` holds the centralized tracker URL and references the secret key
 
 ### Testing Requirements
 - Use `handleTestEmail()` to test the full send pipeline with Row 2 data
-- After modifying `SendEngine.js`, verify: variable substitution, tracking pixel injection, timeout handling, batch resumption
-- After modifying `MimeBuilder.js`, verify: multipart structure, inline image CIDs, attachment encoding, custom headers
-- After modifying `Analytics.js`, verify: bounce pattern matching, reply detection, metrics calculation
+- After modifying `services/SendEngine.js`, verify: variable substitution, tracking pixel injection, timeout handling, batch resumption
+- After modifying `utils/MimeBuilder.js`, verify: multipart structure, inline image CIDs, attachment encoding, custom headers
+- After modifying `core/Analytics.js`, verify: bounce pattern matching, reply detection, metrics calculation
 - Deploy with `clasp push` then test in a real Google Sheet
 
 ### Common Patterns

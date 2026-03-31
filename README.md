@@ -29,9 +29,11 @@ Detailed guides and architectural documentation are located in the `docs/` direc
 
 ## 📁 Repository Structure
 
-- `src/`: The core add-on script (Google Apps Script).
+- `src/`: The core add-on script (Google Apps Script) organized into core, services, ui, and utils.
 - `central-tracker/`: Standalone script for the centralized open tracking pixel.
 - `docs/`: Guides and technical documentation.
+- `package.json`: Contains NPM scripts for local development and Clasp deployment.
+- `jsconfig.json`: IDE configuration for cross-file Google Apps Script global scope resolution.
 
 ## 🔒 Security & Privacy
 

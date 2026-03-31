@@ -21,7 +21,7 @@ The tool is accessible directly where the data lives: Google Sheets.
 *   The system automatically reads the headers of the active sheet on load.
 
 ### 2.2 Configuration Flow
-The interface is a vertical, card-based form (`CardUI.js`) that guides the user through setup linearly.
+The interface is a vertical, card-based form (`src/ui/CardUI.js`) that guides the user through setup linearly.
 
 1.  **Draft Selection**: The UI automatically fetches the user's most recent Gmail drafts. The user selects the draft they prepared as a template.
 2.  **Sender Identity**:

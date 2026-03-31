@@ -46,7 +46,7 @@ You need to deploy the code located in the `central-tracker/` directory as a sta
 2. Open the **Project Settings** (gear icon) and check the box to **"Show 'appsscript.json' manifest file in editor"**.
 3. Go back to the Editor.
 4. Copy the entire contents of `central-tracker/appsscript.json` from this repository and paste it into the `appsscript.json` file in your browser, replacing what is there. This links the necessary OAuth2 library.
-5. Copy the entire contents of `central-tracker/Tracker.js` from this repository and paste it into `Code.gs` in your browser.
+5. Copy the entire contents of `central-tracker/core/Tracker.js` from this repository and paste it into `Code.gs` in your browser.
 6. Open **Project Settings** (gear icon) and scroll down to **Script Properties**. Click **Add script property** and add the following three properties:
    * `SECRET_KEY`: A random string you define (e.g., `UNAVSA_TRACKER_SECRET_KEY_2024`).
    * `SERVICE_ACCOUNT_PRIVATE_KEY`: The exact contents of your `private_key` from the JSON file. Ensure you include the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` markers, and replace any literal `\n` with actual newlines if necessary.
@@ -64,7 +64,7 @@ You need to deploy the code located in the `central-tracker/` directory as a sta
 
 Finally, you need to link the Mail Merge Add-on to your newly deployed Central Tracker Web App.
 
-1. Open `src/Config.js` in the Mail Merge Add-on codebase.
+1. Open `src/core/Config.js` in the Mail Merge Add-on codebase.
 2. Locate the `TRACKING` configuration block:
    ```javascript
    TRACKING: {

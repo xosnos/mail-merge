@@ -45,7 +45,7 @@ In the GCP Console for your new project:
 ### 1. Deploy the Central Tracker (For Open Tracking)
 The Central Tracker Web App needs to be deployed so the pixel tracking system has a URL to receive data. This is done ONCE for the whole organization.
 1. Follow the [Central Tracker Setup Guide](./CENTRAL_TRACKING_SETUP.md) to deploy the central tracker script and obtain its URL.
-2. Update `src/Config.js` in the add-on codebase with the Central Web App URL.
+2. Update `src/core/Config.js` in the add-on codebase with the Central Web App URL.
 3. Push the add-on code using `clasp push`.
 
 ### 2. Publish the Workspace Add-on
