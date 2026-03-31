@@ -15,7 +15,11 @@ function checkBounces() {
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', bounceCount: 0 };
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const emailColIndex = headers.findIndex(h => String(h).toLowerCase().includes('email'));
+    const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN);
+    let emailColIndex = configuredEmailCol ? headers.findIndex(h => String(h).trim() === configuredEmailCol) : -1;
+    if (emailColIndex === -1) {
+      emailColIndex = headers.findIndex(h => String(h).toLowerCase().includes('email'));
+    }
     const statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
 
     if (emailColIndex === -1) return { success: false, message: 'No email column to match.', bounceCount: 0 };
@@ -46,10 +50,11 @@ function checkBounces() {
         }
 
         // Check if this bounce is from our campaign (via X-Campaign-ID header)
-        const isCampaignBounce = currentCampaignId && rawContent.indexOf('X-Campaign-ID: ' + currentCampaignId) !== -1;
+        const campaignRegex = new RegExp(`x-campaign-id:\\s*${currentCampaignId}`, 'i');
+        const isCampaignBounce = currentCampaignId && campaignRegex.test(rawContent);
 
         // Try to extract X-Row-ID for precision matching
-        const rowMatch = rawContent.match(/X-Row-ID:\s*(\d+)/);
+        const rowMatch = rawContent.match(/x-row-id:\s*(\d+)/i);
 
         if (isCampaignBounce && rowMatch) {
           // Precision match: we know the exact row
@@ -119,7 +124,11 @@ function checkReplies() {
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', replyCount: 0 };
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const emailColIndex = headers.findIndex(h => String(h).toLowerCase().includes('email'));
+    const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN);
+    let emailColIndex = configuredEmailCol ? headers.findIndex(h => String(h).trim() === configuredEmailCol) : -1;
+    if (emailColIndex === -1) {
+      emailColIndex = headers.findIndex(h => String(h).toLowerCase().includes('email'));
+    }
     const statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
 
     if (emailColIndex === -1) return { success: false, message: 'No email column found.', replyCount: 0 };
@@ -161,11 +170,13 @@ function checkReplies() {
           const fullMsg = Gmail.Users.Messages.get('me', msg.getId(), { format: 'metadata', metadataHeaders: ['X-Campaign-ID', 'X-Row-ID'] });
           if (fullMsg && fullMsg.payload && fullMsg.payload.headers) {
             fullMsg.payload.headers.forEach(header => {
-              if (header.name === 'X-Campaign-ID' && header.value === currentCampaignId) {
+              const headerName = String(header.name || '').toLowerCase();
+              const headerValue = String(header.value || '').trim();
+              if (headerName === 'x-campaign-id' && headerValue === currentCampaignId) {
                 threadHasCampaign = true;
               }
-              if (header.name === 'X-Row-ID') {
-                matchedRowId = parseInt(header.value, 10);
+              if (headerName === 'x-row-id') {
+                matchedRowId = parseInt(headerValue, 10);
               }
             });
           }
@@ -179,8 +190,9 @@ function checkReplies() {
 
       // Second pass: process replies in this campaign thread
       messages.forEach(msg => {
-        const senderMatch = msg.getFrom().match(/<(.+)>/);
-        const fromAddress = senderMatch ? senderMatch[1].toLowerCase() : msg.getFrom().toLowerCase();
+        const fromHeader = String(msg.getFrom() || '');
+        const senderMatch = fromHeader.match(/<([^>]+)>/);
+        const fromAddress = (senderMatch ? senderMatch[1] : fromHeader).trim().toLowerCase();
 
         // Skip messages sent by us
         if (fromAddress === Session.getActiveUser().getEmail().toLowerCase() || getProperty(CONFIG.KEYS.SENDER_ALIAS)?.toLowerCase() === fromAddress) {

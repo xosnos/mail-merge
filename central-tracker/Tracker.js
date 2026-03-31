@@ -3,13 +3,14 @@ function getScriptProp(key) {
 }
 
 function getOAuthService(userEmail) {
-  return OAuth2.createService('SheetsDWD_' + userEmail)
-    .setTokenUrl('https://oauth2.googleapis.com/token')
-    .setPrivateKey(getScriptProp('SERVICE_ACCOUNT_PRIVATE_KEY'))
-    .setIssuer(getScriptProp('SERVICE_ACCOUNT_CLIENT_EMAIL'))
-    .setSubject(userEmail)
-    .setPropertyStore(PropertiesService.getScriptProperties())
-    .setScope('https://www.googleapis.com/auth/spreadsheets');
+    const privateKey = (getScriptProp('SERVICE_ACCOUNT_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
+    return OAuth2.createService('SheetsDWD_' + userEmail)
+      .setTokenUrl('https://oauth2.googleapis.com/token')
+      .setPrivateKey(privateKey)
+      .setIssuer(getScriptProp('SERVICE_ACCOUNT_CLIENT_EMAIL'))
+      .setSubject(userEmail)
+      .setPropertyStore(PropertiesService.getScriptProperties())
+      .setScope('https://www.googleapis.com/auth/spreadsheets');
 }
 
 function doGet(e) {
@@ -36,7 +37,8 @@ function doGet(e) {
     }
 
     const token = service.getAccessToken();
-    const range = `${sheetName}!${cell}`;
+    const safeSheetName = sheetName.replace(/'/g, "''");
+    const range = `'${safeSheetName}'!${cell}`;
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
 
     // 1. Get current cell value
