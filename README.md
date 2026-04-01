@@ -7,6 +7,7 @@ A powerful, open-source Google Sheets add-on for personalized mail merges with a
 - **Personalized Emails**: Use `{{Variable Name}}` in your Gmail drafts to automatically pull data from your spreadsheet.
 - **Open Tracking**: Real-time open tracking using a centralized tracking pixel. No extra setup required per user!
 - **Scheduling**: Schedule your mail merge to run at a future date and time.
+- **Test Emails**: Send a test email to yourself to verify variables and formatting before running a full campaign.
 - **Analytics Dashboard**: Live view of Sent, Opened, Replied, and Bounced metrics directly in your sidebar.
 - **Draft Validation**: Automatically checks if your draft's variables match your sheet columns before sending.
 

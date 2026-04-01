@@ -56,8 +56,13 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 
 * **Sent:** Marked immediately upon successful execution of the Gmail API send request.
 * **Opened:** Tracked via a 1x1 invisible tracking pixel (image) embedded at the bottom of the HTML email body.
-* **Replied:** Tracked by querying the Gmail API for threads linked to the original sent Message-ID.
-* **Bounced:** Tracked by parsing incoming emails for standard bounce/NDR (Non-Delivery Report) headers tied to the original Message-ID.
+* **Replied:** Tracked by querying the Gmail API for threads linked to the original campaign via `X-Campaign-ID` and `X-Row-ID` custom headers.
+* **Bounced:** Tracked by parsing incoming emails for standard bounce/NDR (Non-Delivery Report) headers tied to the original `X-Campaign-ID` or `X-Row-ID`.
+
+### 5.4 Advanced Features (Implemented)
+
+* **Test Email Functionality:** Allows the user to send a test email to themselves before running the whole batch to verify formatting and variable substitution.
+* **Scheduling:** Allows users to schedule the mail merge to run at a specific future date and time.
 
 ---
 
@@ -78,12 +83,10 @@ The tool must accurately update the "Merge Status" column with the highest-achie
   * *Web App Deployment:* Deploy a standalone GAS Web App that listens for `GET` requests.
   * *Pixel Injection:* Append `<img src="YOUR_WEB_APP_URL?id=UNIQUE_ROW_ID" width="1" height="1" />` to the draft's HTML body.
   * *Webhook Handling:* When the pixel is loaded, the Web App receives the `id`, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet, and updates the status to "Opened".
-  * *Time-Driven Triggers:* Set up a background trigger (e.g., every 1 hour) that searches the user's inbox for replies (`in:inbox label:replied`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via Message-IDs.
+  * *Time-Driven Triggers:* Set up a background trigger (e.g., every 3 hours) that searches the user's inbox for replies (`in:inbox newer_than:7d -from:me`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via `X-Campaign-ID` and `X-Row-ID` custom headers.
 
 ---
 
 ## 8. Future Enhancements (Post-MVP)
 
-* **Test Email functionality:** Allow the user to send a test email to themselves before running the whole batch.
-* **Scheduling:** Allow users to schedule the mail merge to run at a specific date/time.
 * **Follow-up Campaigns:** Add the ability to automatically send a follow-up draft to users whose status remains "Sent" (not opened) after X days.

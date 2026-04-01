@@ -16,8 +16,8 @@ This document outlines the current feature set of the UNAVSA Mail Merge tool com
 
 *   **In-Sidebar Analytics Dashboard:**
     *   *YAMM:* The sidebar changes after a campaign is sent to show a live dashboard (often with a pie chart or percentage breakdown) of Open Rates, Bounce Rates, and Reply Rates.
-    *   *Our Tool:* The user has to look at the "Merge status" column in the sheet. The sidebar just has a "Refresh Analytics" button.
-    *   *Implementation Path:* Update `src/ui/CardUI.js` to parse the "Merge status" column and display a clean metric summary directly in the Add-on sidebar.
+    *   *Our Tool:* We have implemented a native CardService dashboard section that displays total processed, along with counts and percentages for Opened, Replied, and Bounced.
+    *   *Implementation Path:* Achieved. Future enhancements could include visual charts if Google ever allows more robust HTML components in CardService, but current functionality meets parity for basic metrics.
 
 ## 2. Advanced Tracking & Compliance Features
 

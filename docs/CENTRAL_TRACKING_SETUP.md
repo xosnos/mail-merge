@@ -64,16 +64,11 @@ You need to deploy the code located in the `central-tracker/` directory as a sta
 
 Finally, you need to link the Mail Merge Add-on to your newly deployed Central Tracker Web App.
 
-1. Open `src/core/Config.js` in the Mail Merge Add-on codebase.
-2. Locate the `TRACKING` configuration block:
-   ```javascript
-   TRACKING: {
-     CENTRAL_URL: 'YOUR_CENTRAL_WEB_APP_URL_HERE',
-     SECRET_KEY: 'YOUR_SECRET_KEY_HERE'
-   }
-   ```
-3. Replace `'YOUR_CENTRAL_WEB_APP_URL_HERE'` with the Web App URL you copied in Phase 3.
-4. Replace `'YOUR_SECRET_KEY_HERE'` with the exact string you used for the `SECRET_KEY` Script Property in Phase 3.
-5. Push your updated Add-on code to Google using `clasp push` (or your preferred deployment method).
+1. Open the Apps Script Editor for the Mail Merge Add-on (`src/`).
+2. Go to **Project Settings** (gear icon) and scroll down to **Script Properties**.
+3. Click **Add script property** and add the following two properties:
+   * `TRACKING_CENTRAL_URL`: The Web App URL you copied in Phase 3.
+   * `TRACKING_SECRET_KEY`: The exact string you used for the `SECRET_KEY` Script Property in Phase 3.
+4. Click **Save script properties**.
 
-Once deployed, the Add-on will automatically handle open tracking for all users seamlessly!
+Once configured, the Add-on will automatically handle open tracking for all users seamlessly!

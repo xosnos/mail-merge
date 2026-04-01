@@ -62,9 +62,9 @@ The system uses the Advanced Gmail API (`Gmail.Users.Messages.send`) rather than
 
 ### 1.4 Background Analytics (`src/core/Analytics.js`)
 While opens are tracked instantly via the Central Tracker, replies and bounces are processed asynchronously by the sender's account.
-*   **Inbox Scanner**: A time-driven trigger runs periodically to scan the user's Gmail inbox.
-*   **Bounces**: Searches for `from:mailer-daemon` and parses the Non-Delivery Report (NDR) for the original `X-Campaign-ID` or `Message-ID`.
-*   **Replies**: Searches for threads linked to the sent emails and checks if a new message from the recipient has been added.
+*   **Inbox Scanner**: A time-driven trigger runs every 3 hours to scan the user's Gmail inbox.
+*   **Bounces**: Searches for `from:mailer-daemon` and parses the Non-Delivery Report (NDR) for the original `X-Campaign-ID` and `X-Row-ID` custom headers, falling back to regex email matching.
+*   **Replies**: Searches for recent inbox messages (`in:inbox newer_than:7d -from:me`) and checks for the `X-Campaign-ID` or `X-Row-ID` headers to match replies from recipients in the sheet.
 *   **Status Updates**: The script updates the "Merge Status" column in the original Google Sheet.
 
 ---

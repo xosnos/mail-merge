@@ -20,7 +20,7 @@ A standalone Google Apps Script web app that serves as the centralized open trac
 - This is a **separate Apps Script deployment** from `src/` — it has its own script ID, manifest, and deployment
 - The web app runs as the deploying user with `ANYONE_ANONYMOUS` access (no auth required for pixel hits)
 - Uses OAuth2 library for domain-wide delegation to write back to the sender's spreadsheet
-- Script properties store sensitive config: `CLIENT_EMAIL`, `PRIVATE_KEY`, `HMAC_SECRET`
+- Script properties store sensitive config: `SERVICE_ACCOUNT_CLIENT_EMAIL`, `SERVICE_ACCOUNT_PRIVATE_KEY`, `SECRET_KEY`
 - HMAC validation is critical for security — never bypass or weaken the signature check
 
 ### Testing Requirements
