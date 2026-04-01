@@ -302,7 +302,9 @@ function sendBatchEmails(config, startRow) {
 
       try {
         Gmail.Users.Messages.send({ raw: raw }, 'me');
-        sheet.getRange(i + 2, statusColIndex + 1).setValue('Sent');
+        const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'GMT';
+        const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
+        sheet.getRange(i + 2, statusColIndex + 1).setValue(`Sent ${timeString}`);
         sentCount++;
         // Update Cache periodically
         cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }), 600);
