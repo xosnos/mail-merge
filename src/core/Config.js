@@ -3,6 +3,11 @@
  */
 
 const CONFIG = {
+  // ==========================================
+  // ⚠️ SET TO FALSE BEFORE PUBLISHING TO STORE ⚠️
+  // ==========================================
+  IS_DEV_MODE: false,
+
   // Properties Service Keys
   KEYS: {
     SELECTED_DRAFT_ID: 'YAMM_CLONE_DRAFT_ID',

@@ -13,7 +13,10 @@ function buildHomepageCard(e) {
   
   const config = extractConfigFromEvent(e);
   const builder = CardService.newCardBuilder();
-  builder.setHeader(CardService.newCardHeader().setTitle("UNAVSA Mail Merge"));
+  
+  // Dynamic Title Based on Dev Mode
+  const title = CONFIG.IS_DEV_MODE ? "🛠️ UNAVSA Mail Merge [DEV]" : "UNAVSA Mail Merge";
+  builder.setHeader(CardService.newCardHeader().setTitle(title));
 
   const configSection = CardService.newCardSection().setHeader("Configuration");
 

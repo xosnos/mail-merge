@@ -49,15 +49,16 @@ The Central Tracker Web App needs to be deployed so the pixel tracking system ha
 3. Push the add-on code using `clasp push`.
 
 ### 2. Publish the Workspace Add-on
-1. Go back to your Google Cloud Console.
-2. Navigate to **APIs & Services > Google Workspace Marketplace SDK**.
-3. Go to the **App Configuration** tab.
-4. Select **Google Sheets add-on**.
-5. Provide the **Script ID** or **Deployment ID**. Found in Project Settings.
-6. Under the **Store Listing** tab, fill out all required fields (Name, Short description, Category, Graphics/Logos).
-7. Use the UNAVSA logo for the icon: `https://media.unavsa.org/uploads/2021/03/cropped-UNAVSA-Logo-original.png`.
-8. Set the application visibility to **Private** (so it only publishes to `unavsa.org` users).
-9. Click **Publish**.
+1. **CRITICAL:** Open `src/core/Config.js` and ensure `IS_DEV_MODE` is set to `false`. If you forget this, all store users will see a `[DEV]` tag on their add-on. Push the add-on code using `clasp push` if you made changes.
+2. Go back to your Google Cloud Console.
+3. Navigate to **APIs & Services > Google Workspace Marketplace SDK**.
+4. Go to the **App Configuration** tab.
+5. Select **Google Sheets add-on**.
+6. Provide the **Script ID** or **Deployment ID**. Found in Project Settings.
+7. Under the **Store Listing** tab, fill out all required fields (Name, Short description, Category, Graphics/Logos).
+8. Use the UNAVSA logo for the icon: `https://media.unavsa.org/uploads/2021/03/cropped-UNAVSA-Logo-original.png`.
+9. Set the application visibility to **Private** (so it only publishes to `unavsa.org` users).
+10. Click **Publish**.
 
 ### 3. Installation
 Once published privately, users within your organization can install it:

@@ -29,6 +29,7 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 - `core/Config.js` centralizes all PropertiesService keys in `CONFIG.KEYS` — always use these constants, never hardcode key strings
 - Tracking secrets are stored in PropertiesService (not in code) for security
 - The `CONFIG.TRACKING` object in `core/Config.js` holds the centralized tracker URL and references the secret key
+- **Dev Mode:** Set `CONFIG.IS_DEV_MODE = true` in `core/Config.js` during local development to add a visual `[DEV]` tag to the UI. Ensure it is set to `false` before deploying a production release.
 
 ### Testing Requirements
 - Use `handleTestEmail()` to test the full send pipeline with Row 2 data
