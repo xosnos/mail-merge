@@ -153,7 +153,7 @@ function sendBatchEmails(config, startRow) {
     let totalToSend = 0;
     for (let j = 0; j < data.length; j++) {
       // Skip hidden rows
-      if (sheet.isRowHiddenByUser(j + 2)) continue;
+      if (sheet.isRowHiddenByUser(j + 2) || sheet.isRowHiddenByFilter(j + 2)) continue;
 
       const row = data[j];
       if (row.every(cell => !cell || String(cell).trim() === '')) continue;
@@ -214,7 +214,7 @@ function sendBatchEmails(config, startRow) {
       }
 
       // Skip hidden rows
-      if (sheet.isRowHiddenByUser(i + 2)) continue;
+      if (sheet.isRowHiddenByUser(i + 2) || sheet.isRowHiddenByFilter(i + 2)) continue;
 
       const row = data[i];
 
