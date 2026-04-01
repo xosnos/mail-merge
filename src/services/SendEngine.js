@@ -29,8 +29,7 @@ function replaceVariables(template, headers, rowData) {
  * Generates a unique campaign ID for tracking.
  * @returns {string} e.g. "camp_abc123_1711234567890"
  */
-function generateCampaignId_() {
-  const sheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
+function generateCampaignId_(sheetId) {
   const short = sheetId.substring(0, 8);
   return 'camp_' + short + '_' + Date.now();
 }
@@ -124,7 +123,16 @@ function sendBatchEmails(config, startRow) {
       throw new Error('You have reached your daily Google email quota limit.');
     }
 
-    const sheet = SpreadsheetApp.getActiveSheet();
+    let spreadsheet;
+    let sheet;
+    if (config.spreadsheetId && config.sheetName) {
+      spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      sheet = spreadsheet.getSheetByName(config.sheetName);
+    } else {
+      spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+      sheet = SpreadsheetApp.getActiveSheet();
+    }
+
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) throw new Error('No data available to send.');
 
@@ -181,7 +189,8 @@ function sendBatchEmails(config, startRow) {
       campaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID);
     }
     if (!campaignId) {
-      campaignId = generateCampaignId_();
+      const currentSheetId = config.spreadsheetId || spreadsheet.getId();
+      campaignId = generateCampaignId_(currentSheetId);
       setProperty(CONFIG.KEYS.CAMPAIGN_ID, campaignId);
     }
 
@@ -252,8 +261,8 @@ function sendBatchEmails(config, startRow) {
 
       // Append tracking pixel if central tracking is configured
       if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.SECRET_KEY) {
-        const sheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
-        const sheetName = encodeURIComponent(sheet.getName());
+        const sheetId = config.spreadsheetId || spreadsheet.getId();
+        const sheetName = encodeURIComponent(config.sheetName || sheet.getName());
         const rowNum = i + 2;
         
         let col = statusColIndex;
@@ -302,7 +311,7 @@ function sendBatchEmails(config, startRow) {
 
       try {
         Gmail.Users.Messages.send({ raw: raw }, 'me');
-        const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'GMT';
+        const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
         const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
         sheet.getRange(i + 2, statusColIndex + 1).setValue(`Sent ${timeString}`);
         sentCount++;

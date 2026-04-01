@@ -10,7 +10,32 @@
  */
 function checkBounces() {
   try {
-    const sheet = SpreadsheetApp.getActiveSheet();
+    let spreadsheet;
+    let sheet;
+    
+    // Attempt to load the saved context for background execution
+    const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
+    const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
+    
+    if (savedSpreadsheetId && savedSheetName) {
+      try {
+        spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
+        sheet = spreadsheet.getSheetByName(savedSheetName);
+      } catch (e) {
+        // Fallback below if the sheet was deleted or permissions changed
+      }
+    } 
+    
+    // Fallback to active spreadsheet (for manual UI clicks)
+    if (!spreadsheet || !sheet) {
+      spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+      if (spreadsheet) {
+         sheet = spreadsheet.getActiveSheet();
+      }
+    }
+    
+    if (!sheet) return { success: false, message: 'Could not resolve target sheet.', bounceCount: 0 };
+
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', bounceCount: 0 };
 
@@ -79,7 +104,7 @@ function checkBounces() {
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
     const data = dataRange.getValues();
     let bounceCount = 0;
-    const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'GMT';
+    const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
     const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
 
     for (let i = 0; i < data.length; i++) {
@@ -119,7 +144,32 @@ function checkBounces() {
  */
 function checkReplies() {
   try {
-    const sheet = SpreadsheetApp.getActiveSheet();
+    let spreadsheet;
+    let sheet;
+    
+    // Attempt to load the saved context for background execution
+    const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
+    const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
+    
+    if (savedSpreadsheetId && savedSheetName) {
+      try {
+        spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
+        sheet = spreadsheet.getSheetByName(savedSheetName);
+      } catch (e) {
+        // Fallback below if the sheet was deleted or permissions changed
+      }
+    } 
+    
+    // Fallback to active spreadsheet (for manual UI clicks)
+    if (!spreadsheet || !sheet) {
+      spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+      if (spreadsheet) {
+         sheet = spreadsheet.getActiveSheet();
+      }
+    }
+    
+    if (!sheet) return { success: false, message: 'Could not resolve target sheet.', replyCount: 0 };
+
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', replyCount: 0 };
 
@@ -154,7 +204,7 @@ function checkReplies() {
     // Search for recent replies in inbox (not sent by us)
     const threads = GmailApp.search('in:inbox newer_than:7d -from:me');
     let replyCount = 0;
-    const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'GMT';
+    const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
     const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
     const processedRows = {};
 
@@ -273,6 +323,15 @@ function setupAnalyticsTrigger() {
 
     setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId());
 
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) {
+      setProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID, ss.getId());
+      const sheet = SpreadsheetApp.getActiveSheet();
+      if (sheet) {
+        setProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME, sheet.getName());
+      }
+    }
+
     return { success: true, message: 'Background scanning enabled (every 15 minutes).' };
   } catch (err) {
     return { success: false, message: err.message };
@@ -312,7 +371,32 @@ function removeAnalyticsTrigger() {
 function getCampaignMetrics() {
   const metrics = { total: 0, sent: 0, opened: 0, replied: 0, bounced: 0, error: null };
   try {
-    const sheet = SpreadsheetApp.getActiveSheet();
+    let spreadsheet;
+    let sheet;
+    
+    // Attempt to load the saved context for background execution
+    const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
+    const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
+    
+    if (savedSpreadsheetId && savedSheetName) {
+      try {
+        spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
+        sheet = spreadsheet.getSheetByName(savedSheetName);
+      } catch (e) {
+        // Fallback below if the sheet was deleted or permissions changed
+      }
+    } 
+    
+    // Fallback to active spreadsheet (for manual UI clicks)
+    if (!spreadsheet || !sheet) {
+      spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+      if (spreadsheet) {
+         sheet = spreadsheet.getActiveSheet();
+      }
+    }
+    
+    if (!sheet) return metrics;
+
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return metrics;
 

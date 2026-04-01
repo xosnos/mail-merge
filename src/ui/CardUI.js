@@ -300,7 +300,9 @@ function extractConfigFromEvent(e) {
     senderAlias: getFormValue("senderAlias"),
     emailColumn: getFormValue("emailColumn"),
     replyTo: getFormValue("replyTo"),
-    scheduleDate: getFormValue("scheduleDate")
+    scheduleDate: getFormValue("scheduleDate"),
+    spreadsheetId: SpreadsheetApp.getActiveSpreadsheet() ? SpreadsheetApp.getActiveSpreadsheet().getId() : null,
+    sheetName: SpreadsheetApp.getActiveSheet() ? SpreadsheetApp.getActiveSheet().getName() : null
   };
 }
 
