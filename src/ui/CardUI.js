@@ -61,6 +61,7 @@ function buildHomepageCard(e) {
   configSection.addWidget(CardService.newTextInput()
     .setTitle("Sender Name")
     .setFieldName("senderName")
+    .setHint("e.g. UNAVSA-21 Registration")
     .setValue(config.senderName || props[CONFIG.KEYS.SENDER_NAME] || ""));
 
   // Sender Email
@@ -102,6 +103,7 @@ function buildHomepageCard(e) {
   configSection.addWidget(CardService.newTextInput()
     .setTitle("Reply-To Address (Optional)")
     .setFieldName("replyTo")
+    .setHint("e.g. conference.registration@unavsa.org")
     .setValue(config.replyTo || props[CONFIG.KEYS.REPLY_TO] || ""));
 
   builder.addSection(configSection);
