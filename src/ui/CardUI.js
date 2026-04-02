@@ -13,7 +13,10 @@ function buildHomepageCard(e) {
   
   const config = extractConfigFromEvent(e);
   const builder = CardService.newCardBuilder();
-  builder.setHeader(CardService.newCardHeader().setTitle("UNAVSA Mail Merge"));
+  
+  // Dynamic Title Based on Dev Mode
+  const title = CONFIG.IS_DEV_MODE ? "🛠️ UNAVSA Mail Merge [DEV]" : "UNAVSA Mail Merge";
+  builder.setHeader(CardService.newCardHeader().setTitle(title));
 
   const configSection = CardService.newCardSection().setHeader("Configuration");
 
@@ -58,6 +61,7 @@ function buildHomepageCard(e) {
   configSection.addWidget(CardService.newTextInput()
     .setTitle("Sender Name")
     .setFieldName("senderName")
+    .setHint("e.g. UNAVSA-21 Registration")
     .setValue(config.senderName || props[CONFIG.KEYS.SENDER_NAME] || ""));
 
   // Sender Email
@@ -99,6 +103,7 @@ function buildHomepageCard(e) {
   configSection.addWidget(CardService.newTextInput()
     .setTitle("Reply-To Address (Optional)")
     .setFieldName("replyTo")
+    .setHint("e.g. conference.registration@unavsa.org")
     .setValue(config.replyTo || props[CONFIG.KEYS.REPLY_TO] || ""));
 
   builder.addSection(configSection);
@@ -295,7 +300,9 @@ function extractConfigFromEvent(e) {
     senderAlias: getFormValue("senderAlias"),
     emailColumn: getFormValue("emailColumn"),
     replyTo: getFormValue("replyTo"),
-    scheduleDate: getFormValue("scheduleDate")
+    scheduleDate: getFormValue("scheduleDate"),
+    spreadsheetId: SpreadsheetApp.getActiveSpreadsheet() ? SpreadsheetApp.getActiveSpreadsheet().getId() : null,
+    sheetName: SpreadsheetApp.getActiveSheet() ? SpreadsheetApp.getActiveSheet().getName() : null
   };
 }
 
