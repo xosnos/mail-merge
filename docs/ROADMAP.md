@@ -52,9 +52,10 @@ This phase requires setting up external listeners and inbox parsers.
     * **Status Update:** When the Web App receives a ping, it validates the HMAC signature, and updates the specific cell in the "Merge Status" column to "Opened" (unless it's already "Replied"). Return a 1x1 transparent GIF.
 2. **Build the Inbox Scanner (Replies & Bounces):**
     * Write a function to scan the user's inbox using `GmailApp.search()`.
-    * *For Replies:* Search for emails in threads belonging to the campaign, or search by your custom `X-Campaign-ID` header.
+    * *For Replies:* Search for emails in threads belonging to the campaign, or search by your custom `X-Campaign-ID` header. Ignore `mailer-daemon` replies.
     * *For Bounces:* Search `from:mailer-daemon` and extract the original Message-ID or custom headers from the Non-Delivery Report.
-    * Update the corresponding row in the Sheet.
+    * Update the corresponding row in the Sheet. Ensure 'Bounced' statuses are never overwritten by 'Replied'.
+    * **[TODO/WORKAROUND NEEDED]:** Implement a mechanism to prevent tracking pixels from prematurely changing the merge status from 'Sent' to 'Opened' immediately after an email is dispatched (e.g., if a user views their own sent email or a CC'd recipient views it before a bounce report arrives).
 3. **Automate the Scanner:**
     * Create a time-driven trigger (e.g., every 1-2 hours) to run the Inbox Scanner in the background so the Sheet updates automatically.
 
