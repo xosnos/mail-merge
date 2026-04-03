@@ -249,13 +249,18 @@ function checkReplies() {
           return;
         }
 
+        // Skip bounce messages (mailer-daemon/postmaster) so they aren't counted as replies
+        if (fromAddress.includes('mailer-daemon') || fromAddress.includes('postmaster')) {
+          return;
+        }
+
         // If the message is FROM someone in our spreadsheet, it's a reply
         const rowInfo = emailToRow[fromAddress];
 
         if (rowInfo && !processedRows[rowInfo.rowNum]) {
           const currentStatus = rowInfo.status.toLowerCase();
-          // Only update if not already marked as replied
-          if (!currentStatus.includes('replied')) {
+          // Only update if not already marked as replied or bounced
+          if (!currentStatus.includes('replied') && !currentStatus.includes('bounced')) {
             sheet.getRange(rowInfo.rowNum, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[rowInfo.rowNum] = true;
             replyCount++;
@@ -263,7 +268,7 @@ function checkReplies() {
         } else if (matchedRowId && !processedRows[matchedRowId]) {
           // Fallback: use X-Row-ID to identify the row directly
           const existingStatus = String(sheet.getRange(matchedRowId, statusColIndex + 1).getValue()).trim().toLowerCase();
-          if (!existingStatus.includes('replied')) {
+          if (!existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
             sheet.getRange(matchedRowId, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[matchedRowId] = true;
             replyCount++;
