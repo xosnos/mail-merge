@@ -274,12 +274,13 @@ function sendBatchEmails(config, startRow) {
         const cell = `${colLetters}${rowNum}`;
         const user = Session.getActiveUser().getEmail();
         
-        const payload = JSON.stringify({ sheetId, sheetName: sheet.getName(), cell, user });
+        const ts = Date.now();
+        const payload = JSON.stringify({ sheetId, sheetName: sheet.getName(), cell, user, ts });
         const sig = Utilities.base64EncodeWebSafe(
           Utilities.computeHmacSha256Signature(payload, CONFIG.TRACKING.SECRET_KEY)
         );
         
-        const pixelUrl = `${CONFIG.TRACKING.CENTRAL_URL}?sheetId=${sheetId}&sheetName=${sheetName}&cell=${cell}&user=${encodeURIComponent(user)}&sig=${sig}`;
+        const pixelUrl = `${CONFIG.TRACKING.CENTRAL_URL}?sheetId=${sheetId}&sheetName=${sheetName}&cell=${cell}&user=${encodeURIComponent(user)}&ts=${ts}&sig=${sig}`;
         const safePixelUrl = pixelUrl.replace(/&/g, '&amp;');
         const imgTag = `<img src="${safePixelUrl}" alt="" width="1" height="1" border="0" />`;
 

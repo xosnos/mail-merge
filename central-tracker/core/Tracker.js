@@ -15,19 +15,31 @@ function getOAuthService(userEmail) {
 
 function doGet(e) {
   try {
-    const { sheetId, sheetName, cell, user, sig } = e.parameter;
+    const { sheetId, sheetName, cell, user, ts, sig } = e.parameter;
     if (!sheetId || !sheetName || !cell || !user || !sig) {
       return ContentService.createTextOutput("Missing params");
     }
 
     const secretKey = getScriptProp('SECRET_KEY');
-    const payload = JSON.stringify({ sheetId, sheetName, cell, user });
+    const payloadObj = { sheetId, sheetName, cell, user };
+    if (ts) {
+      payloadObj.ts = parseInt(ts, 10);
+    }
+    const payload = JSON.stringify(payloadObj);
     const expectedSig = Utilities.base64EncodeWebSafe(
       Utilities.computeHmacSha256Signature(payload, secretKey)
     );
 
     if (sig !== expectedSig) {
       return ContentService.createTextOutput("Invalid signature");
+    }
+
+    if (ts) {
+      const OPEN_DELAY_THRESHOLD_MS = 10000; // 10 seconds
+      if (Date.now() - parseInt(ts, 10) < OPEN_DELAY_THRESHOLD_MS) {
+        // Ignore pre-fetch or immediate user view
+        return ContentService.createTextOutput("OK");
+      }
     }
 
     const service = getOAuthService(user);
