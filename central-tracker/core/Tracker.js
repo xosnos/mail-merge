@@ -57,7 +57,7 @@ function doGet(e) {
     const existingVal = (data.values && data.values[0] && data.values[0][0]) ? String(data.values[0][0]) : "";
 
     const lower = existingVal.toLowerCase();
-    if (lower === 'sent' || lower.includes('opened')) {
+    if (lower.startsWith('sent') || lower.includes('opened')) {
       // Use script timezone
       const timeZone = Session.getScriptTimeZone();
       const timeString = Utilities.formatDate(new Date(), timeZone, 'MM/dd HH:mm');
