@@ -75,13 +75,13 @@ Once configured, the Add-on will automatically handle open tracking for all user
 
 ---
 
-## Known Limitations & Workarounds Needed
+## Known Limitations & Workarounds
 
 ### 1. Premature "Opened" Status for Bounced Emails
 Because tracking pixels fire instantaneously when an email is viewed, there is a known race condition if an email is sent to an invalid address:
-* If the sender (or a valid CC'd recipient) views the email in their "Sent" folder *before* the mailer-daemon bounce report is processed, the pixel will trigger and update the status to **"Opened <timestamp>"**.
+* If the sender (or a valid CC'd recipient) views the email in their "Sent" folder *before* the mailer-daemon bounce report is processed, the pixel will trigger.
+* **Mitigation:** The system now includes a timestamp (`ts`) in the pixel URL and implements a 10-second delay threshold. If the pixel is loaded within 10 seconds of sending (e.g., by automated pre-fetchers or immediate viewing in the "Sent" folder), the "Opened" status update is ignored.
 * Once the inbox scanner processes the bounce report, it correctly updates the status to **"Bounced"** and will not be overwritten by subsequent "Replied" checks.
-* **Workaround Needed:** We still need to figure out a workaround for the merge status prematurely changing from "Sent" to "Opened" for emails that have just been sent but will eventually bounce. Potential solutions might involve adding a delay before tracking pixels are respected, or using a separate column for open tracking versus delivery status.
 
 ### 2. Bounce vs. Reply Resolution
 When a message bounces, the `mailer-daemon` returns a Non-Delivery Report. Previously, the Inbox Scanner would erroneously interpret this NDR as a "Reply". This has been fixed: the scanner now explicitly ignores incoming emails containing `mailer-daemon` or `postmaster`, and once a row is marked as `Bounced`, it is locked and will never be overwritten by a `Replied` status.
