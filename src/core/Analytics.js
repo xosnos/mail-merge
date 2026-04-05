@@ -8,7 +8,7 @@
  * Improved: attempts to match via X-Campaign-ID header in the NDR, falls back to email regex.
  * @returns {Object} { success: boolean, message: string, bounceCount: number }
  */
-function checkBounces() {
+function checkBounces(startTime = Date.now()) {
   try {
     let spreadsheet;
     let sheet;
@@ -52,12 +52,41 @@ function checkBounces() {
 
     // Get current campaign ID for header matching
     const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID) || '';
+    const sheetNotes = sheet.getDataRange().getNotes();
+
+    const MAX_EXECUTION_TIME_MS = 210000; // 3.5 minutes
+    if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+      return { success: true, message: 'Execution limit reached before bounces scan.', bounceCount: 0 };
+    }
+
+    // Pre-compute Tracking ID lookup (O(1) search)
+    const tidToRow = {};
+    for (let r = 0; r < sheetNotes.length; r++) {
+      for (let c = 0; c < sheetNotes[r].length; c++) {
+        const note = sheetNotes[r][c];
+        if (note && note.includes('Tracking ID: ')) {
+          const match = note.match(/Tracking ID:\s*([a-z0-9-]+)/i);
+          if (match) {
+            tidToRow[match[1]] = r + 1; // 1-based index
+          }
+        }
+      }
+    }
+
+    if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+      return { success: true, message: 'Execution limit reached during bounces lookup.', bounceCount: 0 };
+    }
 
     // Search for recent bounce messages
     const threads = GmailApp.search('from:mailer-daemon in:inbox newer_than:7d');
     const bouncedEmails = {};
 
-    threads.forEach(thread => {
+    for (let i = 0; i < threads.length; i++) {
+      if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+        console.log("Analytics scanner reaching execution limit. Halting bounces scan.");
+        break;
+      }
+      const thread = threads[i];
       const msgs = thread.getMessages();
       msgs.forEach(m => {
         const body = m.getPlainBody();
@@ -78,11 +107,19 @@ function checkBounces() {
         const campaignRegex = new RegExp(`x-campaign-id:\\s*${currentCampaignId}`, 'i');
         const isCampaignBounce = currentCampaignId && campaignRegex.test(rawContent);
 
-        // Try to extract X-Row-ID for precision matching
+        // Try to extract X-Tracking-ID and X-Row-ID for precision matching
+        const tidMatch = rawContent.match(/x-tracking-id:\s*([a-z0-9-]+)/i);
         const rowMatch = rawContent.match(/x-row-id:\s*(\d+)/i);
 
-        if (isCampaignBounce && rowMatch) {
-          // Precision match: we know the exact row
+        if (isCampaignBounce && tidMatch) {
+          // Precision match by Tracking ID
+          const tid = tidMatch[1];
+          const foundRow = tidToRow[tid] || -1;
+          if (foundRow !== -1) {
+            bouncedEmails['__row__' + foundRow] = foundRow;
+          }
+        } else if (isCampaignBounce && rowMatch) {
+          // Precision match fallback to Row ID
           const rowNum = parseInt(rowMatch[1], 10);
           bouncedEmails['__row__' + rowNum] = rowNum;
         } else {
@@ -95,7 +132,7 @@ function checkBounces() {
           }
         }
       });
-    });
+    }
 
     if (Object.keys(bouncedEmails).length === 0) {
       return { success: true, message: 'No recent bounce notifications found in inbox.', bounceCount: 0 };
@@ -142,7 +179,7 @@ function checkBounces() {
  * Updates "Merge status" to "Replied <timestamp>" for matched rows.
  * @returns {Object} { success: boolean, message: string, replyCount: number }
  */
-function checkReplies() {
+function checkReplies(startTime = Date.now()) {
   try {
     let spreadsheet;
     let sheet;
@@ -189,6 +226,31 @@ function checkReplies() {
       return { success: true, message: 'No campaign ID found. Send a batch first.', replyCount: 0 };
     }
 
+    const sheetNotes = sheet.getDataRange().getNotes();
+
+    const MAX_EXECUTION_TIME_MS = 210000; // 3.5 minutes
+    if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+      return { success: true, message: 'Execution limit reached before replies scan.', replyCount: 0 };
+    }
+
+    // Pre-compute Tracking ID lookup (O(1) search)
+    const tidToRow = {};
+    for (let r = 0; r < sheetNotes.length; r++) {
+      for (let c = 0; c < sheetNotes[r].length; c++) {
+        const note = sheetNotes[r][c];
+        if (note && note.includes('Tracking ID: ')) {
+          const match = note.match(/Tracking ID:\s*([a-z0-9-]+)/i);
+          if (match) {
+            tidToRow[match[1]] = r + 1; // 1-based index
+          }
+        }
+      }
+    }
+
+    if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+      return { success: true, message: 'Execution limit reached during replies lookup.', replyCount: 0 };
+    }
+
     // Build a lookup of emails → row numbers from the sheet
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
     const data = dataRange.getValues();
@@ -201,6 +263,10 @@ function checkReplies() {
       }
     });
 
+    if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+      return { success: true, message: 'Execution limit reached before Gmail search.', replyCount: 0 };
+    }
+
     // Search for recent replies in inbox (not sent by us)
     const threads = GmailApp.search('in:inbox newer_than:7d -from:me');
     let replyCount = 0;
@@ -208,16 +274,22 @@ function checkReplies() {
     const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
     const processedRows = {};
 
-    threads.forEach(thread => {
+    for (let i = 0; i < threads.length; i++) {
+      if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+        console.log("Analytics scanner reaching execution limit. Halting replies scan.");
+        break;
+      }
+      const thread = threads[i];
       const messages = thread.getMessages();
 
       let threadHasCampaign = false;
       let matchedRowId = null;
+      let matchedTid = null;
 
       // First pass: determine if this thread belongs to our campaign
       for (const msg of messages) {
         try {
-          const fullMsg = Gmail.Users.Messages.get('me', msg.getId(), { format: 'metadata', metadataHeaders: ['X-Campaign-ID', 'X-Row-ID'] });
+          const fullMsg = Gmail.Users.Messages.get('me', msg.getId(), { format: 'metadata', metadataHeaders: ['X-Campaign-ID', 'X-Row-ID', 'X-Tracking-ID'] });
           if (fullMsg && fullMsg.payload && fullMsg.payload.headers) {
             fullMsg.payload.headers.forEach(header => {
               const headerName = String(header.name || '').toLowerCase();
@@ -228,6 +300,9 @@ function checkReplies() {
               if (headerName === 'x-row-id') {
                 matchedRowId = parseInt(headerValue, 10);
               }
+              if (headerName === 'x-tracking-id') {
+                matchedTid = headerValue;
+              }
             });
           }
         } catch (e) {
@@ -236,7 +311,7 @@ function checkReplies() {
         if (threadHasCampaign) break;
       }
 
-      if (!threadHasCampaign) return;
+      if (!threadHasCampaign) continue;
 
       // Second pass: process replies in this campaign thread
       messages.forEach(msg => {
@@ -254,10 +329,19 @@ function checkReplies() {
           return;
         }
 
-        // If the message is FROM someone in our spreadsheet, it's a reply
+        // Search for row by tracking ID
+        const foundRowByTid = matchedTid ? (tidToRow[matchedTid] || -1) : -1;
+
         const rowInfo = emailToRow[fromAddress];
 
-        if (rowInfo && !processedRows[rowInfo.rowNum]) {
+        if (foundRowByTid !== -1 && !processedRows[foundRowByTid]) {
+          const existingStatus = String(sheet.getRange(foundRowByTid, statusColIndex + 1).getValue()).trim().toLowerCase();
+          if (!existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
+            sheet.getRange(foundRowByTid, statusColIndex + 1).setValue(`Replied ${timeString}`);
+            processedRows[foundRowByTid] = true;
+            replyCount++;
+          }
+        } else if (rowInfo && !processedRows[rowInfo.rowNum]) {
           const currentStatus = rowInfo.status.toLowerCase();
           // Only update if not already marked as replied or bounced
           if (!currentStatus.includes('replied') && !currentStatus.includes('bounced')) {
@@ -275,7 +359,7 @@ function checkReplies() {
           }
         }
       });
-    });
+    }
 
     return { success: true, message: `Checked replies. Found ${replyCount} new replies.`, replyCount };
   } catch (err) {
