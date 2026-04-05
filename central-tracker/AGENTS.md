@@ -30,9 +30,9 @@ A standalone Google Apps Script web app that serves as the centralized open trac
 - Deploy with `clasp push` then publish as web app (Execute as: Me, Access: Anyone)
 
 ### Common Patterns
-- URL parameters: `sheetId`, `sheetName`, `cell`, `user` (sender email), `sig` (HMAC signature)
-- Only updates cell if current status is "Sent" (prevents overwriting "Replied" or "Bounced")
-- Uses `UrlFetchApp.fetch` with Sheets API v4 REST endpoint for cross-user sheet access
+- URL parameters: `sheetId`, `sheetName`, `cell`, `user` (sender email), `ts` (timestamp for thresholding), `tid` (Tracking ID), `sig` (HMAC signature)
+- Only updates cell if current status is "Sent" or "Opened" (prevents overwriting "Replied" or "Bounced")
+- Uses `UrlFetchApp.fetch` with Sheets API v4 REST endpoint for cross-user sheet access. First searches for `tid` in the sheet notes, then falls back to `cell`.
 - OAuth2 token refresh is handled by the OAuth2 library
 
 ## Dependencies

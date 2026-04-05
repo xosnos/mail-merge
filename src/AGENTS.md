@@ -43,7 +43,7 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 - Batch sends use a 4.5-minute timeout with `ScriptApp.newTrigger` for auto-resumption
 - Progress is cached in `CacheService` with `CONFIG.KEYS.PROGRESS_CACHE`
 - Status column values follow patterns: `Sent <timestamp>`, `Opened <timestamp>`, `Replied <timestamp>`, `Bounced <timestamp>`
-- HMAC signatures use `Utilities.computeHmacSha256Signature` for tracking pixel URL security
+- HMAC signatures use `Utilities.computeHmacSha256Signature` for tracking pixel URL security, appending `ts` (timestamp) and `tid` (Tracking ID, generated via `Utilities.getUuid()`).
 
 ## Dependencies
 
