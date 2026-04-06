@@ -151,6 +151,10 @@ function checkBounces(startTime = Date.now()) {
       // Don't overwrite existing "Bounced" status
       if (existingStatus.includes('bounced')) continue;
 
+      // Only process rows that have actually been sent for this campaign
+      // This prevents applying 'Bounced' to empty/unprocessed rows.
+      if (!existingStatus.includes('sent') && !existingStatus.includes('opened') && !existingStatus.includes('replied')) continue;
+
       const rowNum = i + 2;
       let isBounced = false;
 
@@ -336,15 +340,15 @@ function checkReplies(startTime = Date.now()) {
 
         if (foundRowByTid !== -1 && !processedRows[foundRowByTid]) {
           const existingStatus = String(sheet.getRange(foundRowByTid, statusColIndex + 1).getValue()).trim().toLowerCase();
-          if (!existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
+          if ((existingStatus.includes('sent') || existingStatus.includes('opened')) && !existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
             sheet.getRange(foundRowByTid, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[foundRowByTid] = true;
             replyCount++;
           }
         } else if (rowInfo && !processedRows[rowInfo.rowNum]) {
           const currentStatus = rowInfo.status.toLowerCase();
-          // Only update if not already marked as replied or bounced
-          if (!currentStatus.includes('replied') && !currentStatus.includes('bounced')) {
+          // Only update if it was actually sent/opened, and not already marked as replied or bounced
+          if ((currentStatus.includes('sent') || currentStatus.includes('opened')) && !currentStatus.includes('replied') && !currentStatus.includes('bounced')) {
             sheet.getRange(rowInfo.rowNum, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[rowInfo.rowNum] = true;
             replyCount++;
@@ -352,7 +356,7 @@ function checkReplies(startTime = Date.now()) {
         } else if (matchedRowId && !processedRows[matchedRowId]) {
           // Fallback: use X-Row-ID to identify the row directly
           const existingStatus = String(sheet.getRange(matchedRowId, statusColIndex + 1).getValue()).trim().toLowerCase();
-          if (!existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
+          if ((existingStatus.includes('sent') || existingStatus.includes('opened')) && !existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
             sheet.getRange(matchedRowId, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[matchedRowId] = true;
             replyCount++;
