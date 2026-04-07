@@ -40,7 +40,7 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 
 ### Common Patterns
 - Event objects (`e`) from CardUI actions contain `formInputs` or `formInput` (handle both modern and legacy formats via `extractConfigFromEvent`)
-- Batch sends use a 4.5-minute timeout with `ScriptApp.newTrigger` for auto-resumption
+- Batch sends instantly execute in the background to bypass Add-on UI limits, using a 4.5-minute execution window with `ScriptApp.newTrigger` for auto-resumption
 - Progress is cached in `CacheService` with `CONFIG.KEYS.PROGRESS_CACHE`
 - Status column values follow patterns: `Sent <timestamp>`, `Opened <timestamp>`, `Replied <timestamp>`, `Bounced <timestamp>`
 - HMAC signatures use `Utilities.computeHmacSha256Signature` for tracking pixel URL security, appending `ts` (timestamp) and `tid` (Tracking ID, generated via `Utilities.getUuid()`).

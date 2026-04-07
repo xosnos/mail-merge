@@ -69,7 +69,7 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 ## 6. Non-Functional Requirements & Constraints
 
 * **Google Workspace Limits:** The tool must account for Google's daily email sending quotas (typically 1,500 - 2,000 for Workspace accounts, 400 for trial/free). The UI should warn users if their list exceeds their daily quota.
-* **Performance:** Sending a batch of emails should process quickly. If the list is massive (e.g., >500 rows), the script should utilize time-driven triggers to chunk the sending process and avoid the 6-minute Google Apps Script execution timeout.
+* **Performance:** Sending a batch of emails should process quickly. The UI should instantly offload work to an immediate background trigger to avoid the 30-second Add-on execution limit. If the list is massive (e.g., >500 rows), the background script should utilize time-driven triggers to chunk the sending process and avoid the 6-minute Google Apps Script execution timeout.
 * **Security:** Ensure the script runs *as the user executing the add-on* so emails are sent from their account and data access is restricted to their permissions.
 
 ---

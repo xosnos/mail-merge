@@ -58,7 +58,7 @@ The system uses the Advanced Gmail API (`Gmail.Users.Messages.send`) rather than
 *   **RFC 2822 Construction**: `src/utils/MimeBuilder.js` manually constructs raw, multipart MIME messages encoded in URL-safe Base64. This allows for inline images, attachments, and most importantly, custom headers.
 *   **Custom Headers**: During construction, the system injects `X-Campaign-ID` and `X-Row-ID` into the email headers. These are invisible to the recipient but essential for tracking replies and bounces.
 *   **Tracking Pixel Injection**: The HTML body is parsed, and an `<img>` tag pointing to the Central Tracker Web App is injected before the closing `</body>` tag.
-*   **Timeout Chunking**: GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
+*   **Timeout Chunking**: The Add-on UI imposes a strict 30-45 second execution limit, so `handleSendEmails` creates an immediate background trigger (`timeBased().after(1)`) to offload the work. Once running in the background, GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
 
 ### 1.4 Background Analytics (`src/core/Analytics.js`)
 While opens are tracked instantly via the Central Tracker, replies and bounces are processed asynchronously by the sender's account.
