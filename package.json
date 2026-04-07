@@ -7,7 +7,10 @@
     "push:addon": "cd src && clasp push",
     "push:tracker": "cd central-tracker && clasp push",
     "pull:addon": "cd src && clasp pull",
-    "pull:tracker": "cd central-tracker && clasp pull"
+    "pull:tracker": "cd central-tracker && clasp pull",
+    "deploy:addon": "cd src && clasp push && clasp deploy",
+    "deploy:tracker": "cd central-tracker && clasp push && clasp deploy",
+    "deploy": "npm run deploy:tracker && npm run deploy:addon"
   },
   "devDependencies": {
     "@types/google-apps-script": "^1.0.83"
