@@ -77,18 +77,20 @@ This is a globally accessible, standalone Apps Script project deployed as a Web 
 The app exposes a `doGet(e)` endpoint. When an email recipient opens an email, their mail client attempts to load the injected 1x1 image, hitting this URL with specific query parameters:
 *   `sheetId`: The ID of the sender's Google Sheet.
 *   `sheetName`: The specific tab name.
-*   `cell`: The specific cell notation (e.g., `Z2`) in the "Merge Status" column.
+*   `cell`: The specific cell notation (e.g., `Z2`) in the "Merge Status" column (used as a fallback).
 *   `user`: The email address of the sender.
+*   `ts`: The timestamp when the email was sent, used to prevent premature open tracking from immediate pre-fetches.
+*   `tid`: A unique Tracking ID generated for each email sent.
 *   `sig`: An HMAC-SHA256 signature.
 
 ### 2.2 Security (HMAC Validation)
 To prevent malicious actors from arbitrarily updating cells in organizational spreadsheets by guessing URLs, the Add-on generates an HMAC-SHA256 signature using a shared secret stored in `PropertiesService`.
-*   The Tracker recalculates the signature using the incoming parameters (`sheetId`, `cell`, etc.) and the shared secret.
+*   The Tracker recalculates the signature using the incoming parameters and the shared secret.
 *   If the signatures do not match, the request is rejected with a 403 Forbidden.
 
 ### 2.3 Authentication Flow (Domain-Wide Delegation)
 Because the Web App runs as the Developer (not the Sender), it cannot natively edit the Sender's private spreadsheet.
 *   **Service Account**: The Tracker uses a Google Cloud Platform (GCP) Service Account with Domain-Wide Delegation enabled.
 *   **OAuth2**: Using the `OAuth2` Apps Script library, the Tracker requests an access token, impersonating the `user` (Sender) passed in the URL parameters.
-*   **Sheets API v4**: With the impersonated token, the Tracker makes a REST call to the Google Sheets API (`UrlFetchApp.fetch`) to update the specific `cell` to "Opened <timestamp>".
+*   **Sheets API v4**: With the impersonated token, the Tracker makes a REST call to the Google Sheets API (`UrlFetchApp.fetch`) to search for the cell containing the `tid` in its note. It then updates that specific cell to "Opened <timestamp>". If the search fails, it falls back to the `cell` parameter.
 *   **Response**: Regardless of success or failure, the endpoint returns a `ContentService.MimeType.GIF` representing a 1x1 transparent pixel so the recipient's email client renders it without error.

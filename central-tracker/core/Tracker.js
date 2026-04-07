@@ -15,7 +15,7 @@ function getOAuthService(userEmail) {
 
 function doGet(e) {
   try {
-    const { sheetId, sheetName, cell, user, ts, sig } = e.parameter;
+    const { sheetId, sheetName, cell, user, ts, tid, sig } = e.parameter;
     if (!sheetId || !sheetName || !cell || !user || !sig) {
       return ContentService.createTextOutput("Missing params");
     }
@@ -24,6 +24,9 @@ function doGet(e) {
     const payloadObj = { sheetId, sheetName, cell, user };
     if (ts) {
       payloadObj.ts = parseInt(ts, 10);
+    }
+    if (tid) {
+      payloadObj.tid = tid;
     }
     const payload = JSON.stringify(payloadObj);
     const expectedSig = Utilities.base64EncodeWebSafe(
@@ -50,8 +53,55 @@ function doGet(e) {
 
     const token = service.getAccessToken();
     const safeSheetName = sheetName.replace(/'/g, "''");
-    const range = `'${safeSheetName}'!${cell}`;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
+    
+    let targetRange = `'${safeSheetName}'!${cell}`;
+    if (tid) {
+      const searchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodeURIComponent("'" + safeSheetName + "'")}&fields=sheets(data(rowData(values(note,formattedValue))))`;
+      const searchRes = UrlFetchApp.fetch(searchUrl, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token },
+        muteHttpExceptions: true
+      });
+      
+      if (searchRes.getResponseCode() === 200) {
+        const searchData = JSON.parse(searchRes.getContentText());
+        if (searchData.sheets && searchData.sheets[0] && searchData.sheets[0].data && searchData.sheets[0].data[0] && searchData.sheets[0].data[0].rowData) {
+          const rowData = searchData.sheets[0].data[0].rowData;
+          let foundRow = -1;
+          let statusCol = -1;
+          
+          for (let r = 0; r < rowData.length; r++) {
+            const rowValues = rowData[r].values;
+            if (!rowValues) continue;
+            
+            for (let c = 0; c < rowValues.length; c++) {
+              const cellData = rowValues[c];
+              if (!cellData) continue;
+              
+              if (r === 0 && cellData.formattedValue && cellData.formattedValue.toLowerCase() === 'merge status') {
+                statusCol = c;
+              }
+              
+              if (cellData.note && cellData.note.includes(tid)) {
+                foundRow = r;
+              }
+            }
+          }
+          
+          if (foundRow !== -1 && statusCol !== -1) {
+            let temp = statusCol;
+            let letter = '';
+            while (temp >= 0) {
+              letter = String.fromCharCode(65 + (temp % 26)) + letter;
+              temp = Math.floor(temp / 26) - 1;
+            }
+            targetRange = `'${safeSheetName}'!${letter}${foundRow + 1}`;
+          }
+        }
+      }
+    }
+
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(targetRange)}`;
 
     // 1. Get current cell value
     const getRes = UrlFetchApp.fetch(url, {

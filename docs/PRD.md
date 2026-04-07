@@ -55,9 +55,9 @@ This internal tool enables non-technical users to execute personalized mass emai
 The tool must accurately update the "Merge Status" column with the highest-achieved state in this hierarchy: *Sent -> Opened -> Replied*. (*Bounced* overrides all).
 
 * **Sent:** Marked immediately upon successful execution of the Gmail API send request.
-* **Opened:** Tracked via a 1x1 invisible tracking pixel (image) embedded at the bottom of the HTML email body.
-* **Replied:** Tracked by querying the Gmail API for threads linked to the original campaign via `X-Campaign-ID` and `X-Row-ID` custom headers.
-* **Bounced:** Tracked by parsing incoming emails for standard bounce/NDR (Non-Delivery Report) headers tied to the original `X-Campaign-ID` or `X-Row-ID`.
+* **Opened:** Tracked via a 1x1 invisible tracking pixel (image) embedded at the bottom of the HTML email body, utilizing a unique Tracking ID (`tid`) and timestamp (`ts`) to prevent premature open tracking.
+* **Replied:** Tracked by querying the Gmail API for threads linked to the original campaign via `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` custom headers.
+* **Bounced:** Tracked by parsing incoming emails for standard bounce/NDR (Non-Delivery Report) headers tied to the original `X-Campaign-ID` or tracking ID.
 
 ### 5.4 Advanced Features (Implemented)
 
@@ -81,9 +81,9 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 * **Sending Mechanism:** `GmailApp` or the Advanced Gmail API. *Note: Advanced Gmail API is highly recommended to easily manipulate headers (like `Message-ID` and `Reply-To`) and to inject the tracking pixel securely.*
 * **Tracking Implementation:**
   * *Web App Deployment:* Deploy a standalone GAS Web App that listens for `GET` requests.
-  * *Pixel Injection:* Append `<img src="YOUR_WEB_APP_URL?id=UNIQUE_ROW_ID" width="1" height="1" />` to the draft's HTML body.
-  * *Webhook Handling:* When the pixel is loaded, the Web App receives the `id`, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet, and updates the status to "Opened".
-  * *Time-Driven Triggers:* Set up a background trigger (e.g., every 3 hours) that searches the user's inbox for replies (`in:inbox newer_than:7d -from:me`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via `X-Campaign-ID` and `X-Row-ID` custom headers.
+  * *Pixel Injection:* Append `<img src="YOUR_WEB_APP_URL?sheetId=...&tid=TRACKING_ID&ts=TIMESTAMP" width="1" height="1" />` to the draft's HTML body.
+  * *Webhook Handling:* When the pixel is loaded, the Web App receives the data, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet using the `tid` via the Sheets API, and updates the status to "Opened".
+  * *Time-Driven Triggers:* Set up a background trigger (e.g., every 3 hours) that searches the user's inbox for replies (`in:inbox newer_than:7d -from:me`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via `X-Campaign-ID` and tracking ID custom headers.
 
 ---
 

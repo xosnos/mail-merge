@@ -259,6 +259,9 @@ function sendBatchEmails(config, startRow) {
       const cc = replaceVariables(msg.getCc(), headers, row);
       const bcc = replaceVariables(msg.getBcc(), headers, row);
 
+      const trackingId = Utilities.getUuid();
+      sheet.getRange(i + 2, emailColIndex + 1).setNote('Tracking ID: ' + trackingId);
+
       // Append tracking pixel if central tracking is configured
       if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.SECRET_KEY) {
         const sheetId = config.spreadsheetId || spreadsheet.getId();
@@ -275,12 +278,12 @@ function sendBatchEmails(config, startRow) {
         const user = Session.getActiveUser().getEmail();
         
         const ts = Date.now();
-        const payload = JSON.stringify({ sheetId, sheetName: sheet.getName(), cell, user, ts });
+        const payload = JSON.stringify({ sheetId, sheetName: sheet.getName(), cell, user, ts, tid: trackingId });
         const sig = Utilities.base64EncodeWebSafe(
           Utilities.computeHmacSha256Signature(payload, CONFIG.TRACKING.SECRET_KEY)
         );
         
-        const pixelUrl = `${CONFIG.TRACKING.CENTRAL_URL}?sheetId=${sheetId}&sheetName=${sheetName}&cell=${cell}&user=${encodeURIComponent(user)}&ts=${ts}&sig=${sig}`;
+        const pixelUrl = `${CONFIG.TRACKING.CENTRAL_URL}?sheetId=${sheetId}&sheetName=${sheetName}&cell=${cell}&user=${encodeURIComponent(user)}&ts=${ts}&tid=${trackingId}&sig=${sig}`;
         const safePixelUrl = pixelUrl.replace(/&/g, '&amp;');
         const imgTag = `<img src="${safePixelUrl}" alt="" width="1" height="1" border="0" />`;
 
@@ -306,7 +309,8 @@ function sendBatchEmails(config, startRow) {
         inlineContentIds: inlineContentIds,
         customHeaders: {
           'X-Campaign-ID': campaignId,
-          'X-Row-ID': String(i + 2)
+          'X-Row-ID': String(i + 2),
+          'X-Tracking-ID': trackingId
         }
       });
 
