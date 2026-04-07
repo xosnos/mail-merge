@@ -102,9 +102,10 @@ function sendTestEmail(config) {
  * Uses Advanced Gmail API with custom headers and timeout management.
  * @param {Object} config The settings from the UI
  * @param {number} [startRow] Row index offset (0-based into data array) for resumption
+ * @param {boolean} [isUiContext] Whether the call is made from the synchronous UI (to apply 25s timeout)
  * @returns {Object} {success: boolean, message: string}
  */
-function sendBatchEmails(config, startRow) {
+function sendBatchEmails(config, startRow, isUiContext = false) {
   try {
     if ((!startRow || startRow === 0) && typeof cleanupOrphanedTriggers === 'function') {
       cleanupOrphanedTriggers();
@@ -198,10 +199,11 @@ function sendBatchEmails(config, startRow) {
     let sentCount = 0;
     const loopStart = startRow || 0;
     const executionStart = Date.now();
+    const timeoutThreshold = isUiContext ? 25000 : MAX_EXECUTION_MS; // 25s for UI, 4.5m for triggers
 
     for (let i = loopStart; i < data.length; i++) {
       // ---- Timeout guard ----
-      if (Date.now() - executionStart > MAX_EXECUTION_MS) {
+      if (Date.now() - executionStart > timeoutThreshold) {
         // Save state and schedule continuation
         setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i));
         setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
@@ -394,6 +396,81 @@ function getMergeProgress() {
     return { current: 0, total: 0, status: 'idle' };
   }
   return JSON.parse(progressStr);
+}
+
+/**
+ * Starts an immediate batch send in the background to unblock the UI.
+ * @param {Object} config The settings from the UI
+ * @returns {Object} {success: boolean, message: string}
+ */
+function startBackgroundBatchEmails(config) {
+  try {
+    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers();
+
+    // Pre-flight validation
+    const validation = validateTemplate(config.draftId);
+    if (!validation.isValid) {
+      return { success: false, message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ') };
+    }
+
+    // Save the config for the background run
+    setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
+
+    // Clear any existing background triggers for immediate send
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('runBackgroundBatchSend');
+    } else {
+      const triggers = ScriptApp.getProjectTriggers();
+      triggers.forEach(t => {
+        if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
+          ScriptApp.deleteTrigger(t);
+        }
+      });
+    }
+
+    // Create the trigger to fire almost immediately (1 millisecond)
+    ScriptApp.newTrigger('runBackgroundBatchSend')
+      .timeBased()
+      .after(1)
+      .create();
+
+    return {
+      success: true,
+      message: 'Batch sending started in the background. You can close this sidebar.'
+    };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * Trigger handler for the immediate background batch send.
+ */
+function runBackgroundBatchSend() {
+  // Delete the trigger that called us
+  if (typeof deleteTriggerByHandler === 'function') {
+    deleteTriggerByHandler('runBackgroundBatchSend');
+  } else {
+    const triggers = ScriptApp.getProjectTriggers();
+    triggers.forEach(t => {
+      if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+  }
+
+  // Retrieve saved configuration
+  const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG);
+  if (!configJson) {
+    console.log('runBackgroundBatchSend: No config found.');
+    return;
+  }
+
+  const config = JSON.parse(configJson);
+  
+  console.log('runBackgroundBatchSend: Starting background batch send.');
+  const result = sendBatchEmails(config, 0); // isUiContext defaults to false
+  console.log('runBackgroundBatchSend result: ' + JSON.stringify(result));
 }
 
 /**
