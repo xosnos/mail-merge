@@ -58,7 +58,7 @@ The system uses the Advanced Gmail API (`Gmail.Users.Messages.send`) rather than
 *   **RFC 2822 Construction**: `src/utils/MimeBuilder.js` manually constructs raw, multipart MIME messages encoded in URL-safe Base64. This allows for inline images, attachments, and most importantly, custom headers.
 *   **Custom Headers**: During construction, the system injects `X-Campaign-ID` and `X-Row-ID` into the email headers. These are invisible to the recipient but essential for tracking replies and bounces.
 *   **Tracking Pixel Injection**: The HTML body is parsed, and an `<img>` tag pointing to the Central Tracker Web App is injected before the closing `</body>` tag.
-*   **Timeout Chunking**: The Add-on UI imposes a strict 30-45 second execution limit, so `handleSendEmails` creates an immediate background trigger (`timeBased().after(1)`) to offload the work. Once running in the background, GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
+*   **Timeout Chunking**: The Add-on UI imposes a strict 30-45 second execution limit, so `startBackgroundBatchEmails` creates an immediate background trigger (`timeBased().after(1)`) to offload the work. Once running in the background, GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
 
 ### 1.4 Background Analytics (`src/core/Analytics.js`)
 While opens are tracked instantly via the Central Tracker, replies and bounces are processed asynchronously by the sender's account.
@@ -66,6 +66,18 @@ While opens are tracked instantly via the Central Tracker, replies and bounces a
 *   **Bounces**: Searches for `from:mailer-daemon` and parses the Non-Delivery Report (NDR) for the original `X-Campaign-ID` and `X-Row-ID` custom headers, falling back to regex email matching.
 *   **Replies**: Searches for recent inbox messages (`in:inbox newer_than:7d -from:me`) and checks for the `X-Campaign-ID` or `X-Row-ID` headers to match replies from recipients in the sheet.
 *   **Status Updates**: The script updates the "Merge Status" column in the original Google Sheet.
+
+### 1.5 Gmail API Helpers (`src/services/GmailService.js`)
+Provides reusable helper functions for interacting with the user's Gmail account.
+*   **Draft Retrieval**: Fetches all available drafts and sorts them by date (`getGmailDrafts`).
+*   **Alias Management**: Retrieves all "Send As" aliases available to the active user (`getGmailAliases`).
+*   **Variable Extraction**: Parses the content of a draft (Subject, Body, CC, BCC) to extract and return unique `{{variable}}` tags (`getDraftVariables`).
+
+### 1.6 Core Application Logic (`src/core/Main.js`)
+Handles entry-point functionalities, template validation, and trigger lifecycle management.
+*   **Trigger Management**: Provides cleanup functions (`cleanupOrphanedTriggers`, `deleteTriggerByHandler`) to manage and delete background time-driven triggers, preventing quota limits.
+*   **Validation**: Validates the selected draft's variables against the active sheet's headers to prevent sending emails with unresolved placeholders (`validateTemplate`).
+*   **Initialization**: Bootstraps the active sheet with required headers or populates an empty template for new users (`initializeSheet`).
 
 ---
 
