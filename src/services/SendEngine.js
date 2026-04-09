@@ -186,13 +186,36 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     // Generate or retrieve campaign ID
     let campaignId;
+    let campaignLabelId = null;
+
     if (startRow && startRow > 0) {
       campaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID);
+      campaignLabelId = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL_ID);
     }
     if (!campaignId) {
       const currentSheetId = config.spreadsheetId || spreadsheet.getId();
       campaignId = generateCampaignId_(currentSheetId);
       setProperty(CONFIG.KEYS.CAMPAIGN_ID, campaignId);
+      
+      // Setup Campaign Label based on subject
+      const originalSubject = msg.getSubject() || 'Untitled Campaign';
+      let labelName = 'UNAVSA - ' + originalSubject.trim().substring(0, 100);
+      labelName = labelName.replace(/[\/\\:*?"<>|]/g, '').trim(); // Sanitize invalid label characters
+      
+      try {
+        const labelsList = Gmail.Users.Labels.list('me');
+        const existingLabel = labelsList.labels.find(l => l.name === labelName);
+        if (existingLabel) {
+          campaignLabelId = existingLabel.id;
+        } else {
+          const createdLabel = Gmail.Users.Labels.create({ name: labelName }, 'me');
+          campaignLabelId = createdLabel.id;
+        }
+        setProperty(CONFIG.KEYS.CAMPAIGN_LABEL, labelName);
+        setProperty(CONFIG.KEYS.CAMPAIGN_LABEL_ID, campaignLabelId);
+      } catch (e) {
+        console.error("Failed to setup campaign label", e);
+      }
     }
 
     const senderEmail = config.senderAlias || Session.getActiveUser().getEmail();
@@ -317,7 +340,16 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       });
 
       try {
-        Gmail.Users.Messages.send({ raw: raw }, 'me');
+        const sentMessage = Gmail.Users.Messages.send({ raw: raw }, 'me');
+        
+        if (campaignLabelId) {
+          try {
+            Gmail.Users.Messages.modify({ addLabelIds: [campaignLabelId] }, 'me', sentMessage.id);
+          } catch(labelErr) {
+            console.error("Failed to label message", labelErr);
+          }
+        }
+        
         const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
         const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
         sheet.getRange(i + 2, statusColIndex + 1).setValue(`Sent ${timeString}`);
