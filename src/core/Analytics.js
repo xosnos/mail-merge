@@ -272,7 +272,12 @@ function checkReplies(startTime = Date.now()) {
     }
 
     // Search for recent replies in inbox (not sent by us)
-    const threads = GmailApp.search('in:inbox newer_than:7d -from:me');
+    const campaignLabel = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL);
+    let searchQuery = 'in:inbox newer_than:7d -from:me';
+    if (campaignLabel) {
+      searchQuery = `label:"${campaignLabel.replace(/"/g, '\\"')}" in:inbox newer_than:7d -from:me`;
+    }
+    const threads = GmailApp.search(searchQuery);
     let replyCount = 0;
     const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
     const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');

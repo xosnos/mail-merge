@@ -348,7 +348,7 @@ function handleSendEmails(e) {
           result = { success: false, message: `Must be future. Selected: ${new Date(ms).toISOString()}, Now: ${new Date(now).toISOString()}, Input: ${config.scheduleDate}` };
       }
   } else {
-      result = sendBatchEmails(config, 0);
+      result = startBackgroundBatchEmails(config);
   }
 
   return CardService.newActionResponseBuilder()
