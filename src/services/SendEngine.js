@@ -233,14 +233,14 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
         ScriptApp.newTrigger('resumeBatchSend')
           .timeBased()
-          .after(60 * 1000) // resume in 1 minute
+          .after(60 * 60 * 1000) // resume in 1 hour due to Add-on limitations
           .create();
 
-        cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }), 600);
+        cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }), 7200);
 
         return {
           success: true,
-          message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 minute (timeout management).`,
+          message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 hour (timeout management).`,
           sentCount: sentCount,
           total: totalToSend,
           status: 'paused'
