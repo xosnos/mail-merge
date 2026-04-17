@@ -78,15 +78,29 @@ function checkBounces(startTime = Date.now()) {
     }
 
     // Search for recent bounce messages
-    const threads = GmailApp.search('from:mailer-daemon in:inbox newer_than:7d');
+    let lastBounceTimeStr = getProperty(CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME);
+    let lastBounceTime = lastBounceTimeStr ? parseInt(lastBounceTimeStr, 10) : 0;
+    
+    let searchQuery = 'from:mailer-daemon in:inbox newer_than:7d';
+    if (lastBounceTime > 0) {
+      searchQuery = `from:mailer-daemon in:inbox after:${Math.floor(lastBounceTime / 1000)}`;
+    }
+    const threads = GmailApp.search(searchQuery);
+    threads.reverse(); // Process oldest to newest to ensure forward progress on timeout
+    
     const bouncedEmails = {};
+    let maxProcessedTime = lastBounceTime;
 
     for (let i = 0; i < threads.length; i++) {
+      const thread = threads[i];
+      const threadTime = thread.getLastMessageDate().getTime();
+      
+      if (threadTime <= lastBounceTime) continue;
+
       if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
         console.log("Analytics scanner reaching execution limit. Halting bounces scan.");
         break;
       }
-      const thread = threads[i];
       const msgs = thread.getMessages();
       msgs.forEach(m => {
         const body = m.getPlainBody();
@@ -132,6 +146,11 @@ function checkBounces(startTime = Date.now()) {
           }
         }
       });
+      maxProcessedTime = threadTime;
+    }
+
+    if (maxProcessedTime > lastBounceTime) {
+      setProperty(CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME, maxProcessedTime.toString());
     }
 
     if (Object.keys(bouncedEmails).length === 0) {
@@ -272,23 +291,38 @@ function checkReplies(startTime = Date.now()) {
     }
 
     // Search for recent replies in inbox (not sent by us)
+    let lastReplyTimeStr = getProperty(CONFIG.KEYS.LAST_REPLY_THREAD_TIME);
+    let lastReplyTime = lastReplyTimeStr ? parseInt(lastReplyTimeStr, 10) : 0;
+
     const campaignLabel = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL);
-    let searchQuery = 'in:inbox newer_than:7d -from:me';
+    let timeQuery = 'newer_than:7d';
+    if (lastReplyTime > 0) {
+      timeQuery = `after:${Math.floor(lastReplyTime / 1000)}`;
+    }
+
+    let searchQuery = `in:inbox ${timeQuery} -from:me`;
     if (campaignLabel) {
-      searchQuery = `label:"${campaignLabel.replace(/"/g, '\\"')}" in:inbox newer_than:7d -from:me`;
+      searchQuery = `label:"${campaignLabel.replace(/"/g, '\\"')}" in:inbox ${timeQuery} -from:me`;
     }
     const threads = GmailApp.search(searchQuery);
+    threads.reverse(); // Process oldest to newest
+
     let replyCount = 0;
     const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
     const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
     const processedRows = {};
+    let maxProcessedTime = lastReplyTime;
 
     for (let i = 0; i < threads.length; i++) {
+      const thread = threads[i];
+      const threadTime = thread.getLastMessageDate().getTime();
+      
+      if (threadTime <= lastReplyTime) continue;
+
       if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
         console.log("Analytics scanner reaching execution limit. Halting replies scan.");
         break;
       }
-      const thread = threads[i];
       const messages = thread.getMessages();
 
       let threadHasCampaign = false;
@@ -368,6 +402,11 @@ function checkReplies(startTime = Date.now()) {
           }
         }
       });
+      maxProcessedTime = threadTime;
+    }
+
+    if (maxProcessedTime > lastReplyTime) {
+      setProperty(CONFIG.KEYS.LAST_REPLY_THREAD_TIME, maxProcessedTime.toString());
     }
 
     return { success: true, message: `Checked replies. Found ${replyCount} new replies.`, replyCount };

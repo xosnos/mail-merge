@@ -56,46 +56,108 @@ function doGet(e) {
     
     let targetRange = `'${safeSheetName}'!${cell}`;
     if (tid) {
-      const searchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodeURIComponent("'" + safeSheetName + "'")}&fields=sheets(data(rowData(values(note,formattedValue))))`;
-      const searchRes = UrlFetchApp.fetch(searchUrl, {
-        method: 'GET',
-        headers: { Authorization: 'Bearer ' + token },
-        muteHttpExceptions: true
-      });
-      
-      if (searchRes.getResponseCode() === 200) {
-        const searchData = JSON.parse(searchRes.getContentText());
-        if (searchData.sheets && searchData.sheets[0] && searchData.sheets[0].data && searchData.sheets[0].data[0] && searchData.sheets[0].data[0].rowData) {
-          const rowData = searchData.sheets[0].data[0].rowData;
-          let foundRow = -1;
+      let needsFullSearch = true;
+      const rowMatch = cell.match(/\d+/);
+      const expectedRow = rowMatch ? parseInt(rowMatch[0], 10) : null;
+
+      if (expectedRow) {
+        const fastSearchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodeURIComponent("'" + safeSheetName + "'!1:1")}&ranges=${encodeURIComponent("'" + safeSheetName + "'!" + expectedRow + ":" + expectedRow)}&fields=sheets(data(rowData(values(note,formattedValue))))`;
+        const fastRes = UrlFetchApp.fetch(fastSearchUrl, {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + token },
+          muteHttpExceptions: true
+        });
+
+        if (fastRes.getResponseCode() === 200) {
+          const fastData = JSON.parse(fastRes.getContentText());
           let statusCol = -1;
-          
-          for (let r = 0; r < rowData.length; r++) {
-            const rowValues = rowData[r].values;
-            if (!rowValues) continue;
+          let foundTid = false;
+
+          if (fastData.sheets && fastData.sheets[0] && fastData.sheets[0].data) {
+            const rangesData = fastData.sheets[0].data;
             
-            for (let c = 0; c < rowValues.length; c++) {
-              const cellData = rowValues[c];
-              if (!cellData) continue;
-              
-              if (r === 0 && cellData.formattedValue && cellData.formattedValue.toLowerCase() === 'merge status') {
-                statusCol = c;
+            // Process row 1 for 'merge status' column
+            if (rangesData[0] && rangesData[0].rowData && rangesData[0].rowData[0]) {
+              const headerValues = rangesData[0].rowData[0].values;
+              if (headerValues) {
+                for (let c = 0; c < headerValues.length; c++) {
+                  if (headerValues[c] && headerValues[c].formattedValue && headerValues[c].formattedValue.toLowerCase() === 'merge status') {
+                    statusCol = c;
+                    break;
+                  }
+                }
               }
-              
-              if (cellData.note && cellData.note.includes(tid)) {
-                foundRow = r;
+            }
+
+            // Process expectedRow for tid note
+            if (rangesData[1] && rangesData[1].rowData && rangesData[1].rowData[0]) {
+              const rowValues = rangesData[1].rowData[0].values;
+              if (rowValues) {
+                for (let c = 0; c < rowValues.length; c++) {
+                  if (rowValues[c] && rowValues[c].note && rowValues[c].note.includes(tid)) {
+                    foundTid = true;
+                    break;
+                  }
+                }
               }
             }
           }
-          
-          if (foundRow !== -1 && statusCol !== -1) {
+
+          if (foundTid && statusCol !== -1) {
+            needsFullSearch = false;
             let temp = statusCol;
             let letter = '';
             while (temp >= 0) {
               letter = String.fromCharCode(65 + (temp % 26)) + letter;
               temp = Math.floor(temp / 26) - 1;
             }
-            targetRange = `'${safeSheetName}'!${letter}${foundRow + 1}`;
+            targetRange = `'${safeSheetName}'!${letter}${expectedRow}`;
+          }
+        }
+      }
+
+      if (needsFullSearch) {
+        const searchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodeURIComponent("'" + safeSheetName + "'")}&fields=sheets(data(rowData(values(note,formattedValue))))`;
+        const searchRes = UrlFetchApp.fetch(searchUrl, {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + token },
+          muteHttpExceptions: true
+        });
+        
+        if (searchRes.getResponseCode() === 200) {
+          const searchData = JSON.parse(searchRes.getContentText());
+          if (searchData.sheets && searchData.sheets[0] && searchData.sheets[0].data && searchData.sheets[0].data[0] && searchData.sheets[0].data[0].rowData) {
+            const rowData = searchData.sheets[0].data[0].rowData;
+            let foundRow = -1;
+            let statusCol = -1;
+            
+            for (let r = 0; r < rowData.length; r++) {
+              const rowValues = rowData[r].values;
+              if (!rowValues) continue;
+              
+              for (let c = 0; c < rowValues.length; c++) {
+                const cellData = rowValues[c];
+                if (!cellData) continue;
+                
+                if (r === 0 && cellData.formattedValue && cellData.formattedValue.toLowerCase() === 'merge status') {
+                  statusCol = c;
+                }
+                
+                if (cellData.note && cellData.note.includes(tid)) {
+                  foundRow = r;
+                }
+              }
+            }
+            
+            if (foundRow !== -1 && statusCol !== -1) {
+              let temp = statusCol;
+              let letter = '';
+              while (temp >= 0) {
+                letter = String.fromCharCode(65 + (temp % 26)) + letter;
+                temp = Math.floor(temp / 26) - 1;
+              }
+              targetRange = `'${safeSheetName}'!${letter}${foundRow + 1}`;
+            }
           }
         }
       }

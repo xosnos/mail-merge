@@ -585,3 +585,13 @@ function startScheduledBatchSend() {
   const result = sendBatchEmails(config, 0);
   console.log('startScheduledBatchSend result: ' + JSON.stringify(result));
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    replaceVariables,
+    sendBatchEmails,
+    sendTestEmail,
+    scheduleBatchEmails,
+    startBackgroundBatchEmails
+  };
+}

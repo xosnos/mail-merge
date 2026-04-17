@@ -266,3 +266,9 @@ function getInlineContentIds_(messageId) {
     return {};
   }
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildMimeMessage
+  };
+}
