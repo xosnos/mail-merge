@@ -201,6 +201,49 @@ function buildHomepageCard(e) {
 
   builder.addSection(advancedSection);
 
+  // Batch Progress Section
+  const cache = CacheService.getDocumentCache();
+  if (config.spreadsheetId) {
+    const cachedProgress = cache.get(CONFIG.KEYS.BATCH_PROGRESS + '_' + config.spreadsheetId);
+    if (cachedProgress) {
+      try {
+        const progress = JSON.parse(cachedProgress);
+        const progressSection = CardService.newCardSection().setHeader('🚀 Active Batch Progress');
+        
+        progressSection.addWidget(
+          CardService.newKeyValue()
+            .setTopLabel('Status')
+            .setContent(progress.status || 'Running')
+        );
+        
+        progressSection.addWidget(
+          CardService.newKeyValue()
+            .setTopLabel('Processed')
+            .setContent(`${progress.processed} / ${progress.total}`)
+        );
+
+        if (progress.errors > 0) {
+          progressSection.addWidget(
+            CardService.newKeyValue()
+              .setTopLabel('Errors')
+              .setContent(progress.errors.toString())
+              .setIcon(CardService.Icon.ERROR)
+          );
+        }
+        
+        const btnRefreshProgress = CardService.newTextButton()
+          .setText('Refresh Progress')
+          .setOnClickAction(CardService.newAction().setFunctionName('handleRefreshUI'));
+          
+        progressSection.addWidget(CardService.newButtonSet().addButton(btnRefreshProgress));
+        
+        builder.addSection(progressSection);
+      } catch (err) {
+        // Ignore invalid cache JSON
+      }
+    }
+  }
+
   // Actions Section
   const actionSection = CardService.newCardSection().setHeader('Actions');
 

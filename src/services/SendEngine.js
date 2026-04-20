@@ -56,12 +56,20 @@ function sendTestEmail(config) {
 
     const msg = draft.getMessage();
 
-    // Process templates
+    // Look for explicit CC/BCC columns
+    const ccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'cc');
+    const bccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'bcc');
+
+    // Process templates, falling back to Draft CC/BCC if columns are empty or don't exist
     const subject = replaceVariables(msg.getSubject(), headers, testRow);
     const htmlBody = replaceVariables(msg.getBody(), headers, testRow);
     const plainBody = replaceVariables(msg.getPlainBody(), headers, testRow);
-    const cc = replaceVariables(msg.getCc(), headers, testRow);
-    const bcc = replaceVariables(msg.getBcc(), headers, testRow);
+    
+    let cc = ccColIndex !== -1 && testRow[ccColIndex] ? String(testRow[ccColIndex]).trim() : '';
+    if (!cc) cc = replaceVariables(msg.getCc(), headers, testRow);
+    
+    let bcc = bccColIndex !== -1 && testRow[bccColIndex] ? String(testRow[bccColIndex]).trim() : '';
+    if (!bcc) bcc = replaceVariables(msg.getBcc(), headers, testRow);
 
     // The recipient is the active user for tests
     const recipient = Session.getActiveUser().getEmail();
@@ -90,7 +98,7 @@ function sendTestEmail(config) {
       }
     });
 
-    Gmail.Users.Messages.send({ raw: raw }, 'me');
+    callWithBackoff(() => Gmail.Users.Messages.send({ raw: raw }, 'me'));
 
     return { success: true, message: 'Test email successfully sent to ' + recipient };
   } catch (err) {
@@ -152,6 +160,9 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     // Determine which columns are email and merge status
     const emailColIndex = headers.indexOf(config.emailColumn);
     let statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
+    
+    const ccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'cc');
+    const bccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'bcc');
 
     if (emailColIndex === -1) throw new Error('Email column not found.');
     if (statusColIndex === -1) {
@@ -179,6 +190,17 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) continue;
       totalToSend++;
+    }
+
+    if (totalToSend === 0) {
+      return { success: false, message: 'No valid rows found to send. Please check your data.' };
+    }
+
+    if (quota < totalToSend) {
+      return { 
+        success: false, 
+        message: `Insufficient Google email quota. You are trying to send ${totalToSend} emails, but your remaining daily quota is ${quota}.`
+      };
     }
 
     // Initialize progress Cache
@@ -296,11 +318,15 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       const subject = replaceVariables(msg.getSubject(), headers, row);
       let htmlBody = replaceVariables(msg.getBody(), headers, row);
       const plainBody = replaceVariables(msg.getPlainBody(), headers, row);
-      const cc = replaceVariables(msg.getCc(), headers, row);
-      const bcc = replaceVariables(msg.getBcc(), headers, row);
+      
+      let cc = ccColIndex !== -1 && row[ccColIndex] ? String(row[ccColIndex]).trim() : '';
+      if (!cc) cc = replaceVariables(msg.getCc(), headers, row);
+      
+      let bcc = bccColIndex !== -1 && row[bccColIndex] ? String(row[bccColIndex]).trim() : '';
+      if (!bcc) bcc = replaceVariables(msg.getBcc(), headers, row);
 
       const trackingId = Utilities.getUuid();
-      sheet.getRange(i + 2, emailColIndex + 1).setNote('Tracking ID: ' + trackingId);
+      callWithBackoff(() => sheet.getRange(i + 2, emailColIndex + 1).setNote('Tracking ID: ' + trackingId));
 
       // Append tracking pixel if central tracking is configured
       if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.SECRET_KEY) {
@@ -362,11 +388,11 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       });
 
       try {
-        const sentMessage = Gmail.Users.Messages.send({ raw: raw }, 'me');
+        const sentMessage = callWithBackoff(() => Gmail.Users.Messages.send({ raw: raw }, 'me'));
 
         if (campaignLabelId) {
           try {
-            Gmail.Users.Messages.modify({ addLabelIds: [campaignLabelId] }, 'me', sentMessage.id);
+            callWithBackoff(() => Gmail.Users.Messages.modify({ addLabelIds: [campaignLabelId] }, 'me', sentMessage.id));
           } catch (labelErr) {
             console.error('Failed to label message', labelErr);
           }
@@ -374,7 +400,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
         const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
         const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
-        sheet.getRange(i + 2, statusColIndex + 1).setValue(`Sent ${timeString}`);
+        callWithBackoff(() => sheet.getRange(i + 2, statusColIndex + 1).setValue(`Sent ${timeString}`));
         sentCount++;
         // Update Cache periodically
         cache.put(
@@ -383,7 +409,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
           600
         );
       } catch (e) {
-        sheet.getRange(i + 2, statusColIndex + 1).setValue('Error: ' + e.message);
+        callWithBackoff(() => sheet.getRange(i + 2, statusColIndex + 1).setValue('Error: ' + e.message));
       }
     }
 
@@ -418,33 +444,38 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
  * Reads saved state from PropertiesService, deletes the trigger, and continues.
  */
 function resumeBatchSend() {
-  // Delete the trigger that called us so it doesn't re-fire
-  if (typeof deleteTriggerByHandler === 'function') {
-    deleteTriggerByHandler('resumeBatchSend');
-  } else {
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach((t) => {
-      if (t.getHandlerFunction() === 'resumeBatchSend') {
-        ScriptApp.deleteTrigger(t);
-      }
-    });
+  try {
+    // Delete the trigger that called us so it doesn't re-fire
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('resumeBatchSend');
+    } else {
+      const triggers = ScriptApp.getProjectTriggers();
+      triggers.forEach((t) => {
+        if (t.getHandlerFunction() === 'resumeBatchSend') {
+          ScriptApp.deleteTrigger(t);
+        }
+      });
+    }
+
+    // Retrieve saved state
+    const lastRow = getProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
+    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG);
+
+    if (!lastRow || !configJson) {
+      console.log('resumeBatchSend: No saved state found. Nothing to resume.');
+      return;
+    }
+
+    const config = JSON.parse(configJson);
+    const startRowIndex = parseInt(lastRow, 10);
+
+    console.log('resumeBatchSend: Resuming from row index ' + startRowIndex);
+    const result = sendBatchEmails(config, startRowIndex);
+    console.log('resumeBatchSend result: ' + JSON.stringify(result));
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') ErrorLib.logError(err, 'resumeBatchSend');
+    console.error('resumeBatchSend crashed: ', err);
   }
-
-  // Retrieve saved state
-  const lastRow = getProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
-  const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG);
-
-  if (!lastRow || !configJson) {
-    console.log('resumeBatchSend: No saved state found. Nothing to resume.');
-    return;
-  }
-
-  const config = JSON.parse(configJson);
-  const startRowIndex = parseInt(lastRow, 10);
-
-  console.log('resumeBatchSend: Resuming from row index ' + startRowIndex);
-  const result = sendBatchEmails(config, startRowIndex);
-  console.log('resumeBatchSend result: ' + JSON.stringify(result));
 }
 
 /**
@@ -509,30 +540,35 @@ function startBackgroundBatchEmails(config) {
  * Trigger handler for the immediate background batch send.
  */
 function runBackgroundBatchSend() {
-  // Delete the trigger that called us
-  if (typeof deleteTriggerByHandler === 'function') {
-    deleteTriggerByHandler('runBackgroundBatchSend');
-  } else {
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach((t) => {
-      if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
-        ScriptApp.deleteTrigger(t);
-      }
-    });
+  try {
+    // Delete the trigger that called us
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('runBackgroundBatchSend');
+    } else {
+      const triggers = ScriptApp.getProjectTriggers();
+      triggers.forEach((t) => {
+        if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
+          ScriptApp.deleteTrigger(t);
+        }
+      });
+    }
+
+    // Retrieve saved configuration
+    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG);
+    if (!configJson) {
+      console.log('runBackgroundBatchSend: No config found.');
+      return;
+    }
+
+    const config = JSON.parse(configJson);
+
+    console.log('runBackgroundBatchSend: Starting background batch send.');
+    const result = sendBatchEmails(config, 0); // isUiContext defaults to false
+    console.log('runBackgroundBatchSend result: ' + JSON.stringify(result));
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') ErrorLib.logError(err, 'runBackgroundBatchSend');
+    console.error('runBackgroundBatchSend crashed: ', err);
   }
-
-  // Retrieve saved configuration
-  const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG);
-  if (!configJson) {
-    console.log('runBackgroundBatchSend: No config found.');
-    return;
-  }
-
-  const config = JSON.parse(configJson);
-
-  console.log('runBackgroundBatchSend: Starting background batch send.');
-  const result = sendBatchEmails(config, 0); // isUiContext defaults to false
-  console.log('runBackgroundBatchSend result: ' + JSON.stringify(result));
 }
 
 /**
@@ -589,31 +625,36 @@ function scheduleBatchEmails(config) {
  * Invoked by a time-driven trigger to start a scheduled batch.
  */
 function startScheduledBatchSend() {
-  // Delete the trigger that called us
-  if (typeof deleteTriggerByHandler === 'function') {
-    deleteTriggerByHandler('startScheduledBatchSend');
-  } else {
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach((t) => {
-      if (t.getHandlerFunction() === 'startScheduledBatchSend') {
-        ScriptApp.deleteTrigger(t);
-      }
-    });
+  try {
+    // Delete the trigger that called us
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('startScheduledBatchSend');
+    } else {
+      const triggers = ScriptApp.getProjectTriggers();
+      triggers.forEach((t) => {
+        if (t.getHandlerFunction() === 'startScheduledBatchSend') {
+          ScriptApp.deleteTrigger(t);
+        }
+      });
+    }
+
+    // Retrieve saved configuration
+    const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
+    if (!configJson) {
+      console.log('startScheduledBatchSend: No scheduled config found.');
+      return;
+    }
+
+    const config = JSON.parse(configJson);
+    PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
+
+    console.log('startScheduledBatchSend: Starting scheduled batch send.');
+    const result = sendBatchEmails(config, 0);
+    console.log('startScheduledBatchSend result: ' + JSON.stringify(result));
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') ErrorLib.logError(err, 'startScheduledBatchSend');
+    console.error('startScheduledBatchSend crashed: ', err);
   }
-
-  // Retrieve saved configuration
-  const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
-  if (!configJson) {
-    console.log('startScheduledBatchSend: No scheduled config found.');
-    return;
-  }
-
-  const config = JSON.parse(configJson);
-  PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
-
-  console.log('startScheduledBatchSend: Starting scheduled batch send.');
-  const result = sendBatchEmails(config, 0);
-  console.log('startScheduledBatchSend result: ' + JSON.stringify(result));
 }
 
 if (typeof module !== 'undefined') {

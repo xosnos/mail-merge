@@ -494,26 +494,31 @@ function checkReplies(startTime = Date.now()) {
  * @returns {Object} { success: boolean, message: string }
  */
 function runAnalyticsScanner() {
-  const bounceResult = checkBounces();
-  const replyResult = checkReplies();
+  try {
+    const bounceResult = checkBounces();
+    const replyResult = checkReplies();
 
-  const messages = [];
-  if (bounceResult.success) {
-    messages.push(`Bounces: ${bounceResult.bounceCount || 0}`);
-  } else {
-    messages.push('Bounce error: ' + bounceResult.message);
+    const messages = [];
+    if (bounceResult.success) {
+      messages.push(`Bounces: ${bounceResult.bounceCount || 0}`);
+    } else {
+      messages.push('Bounce error: ' + bounceResult.message);
+    }
+
+    if (replyResult.success) {
+      messages.push(`Replies: ${replyResult.replyCount || 0}`);
+    } else {
+      messages.push('Reply error: ' + replyResult.message);
+    }
+
+    return {
+      success: bounceResult.success && replyResult.success,
+      message: 'Analytics scan complete. ' + messages.join(' | ')
+    };
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') ErrorLib.logError(err, 'runAnalyticsScanner');
+    return { success: false, message: 'Analytics scanner crashed: ' + err.message };
   }
-
-  if (replyResult.success) {
-    messages.push(`Replies: ${replyResult.replyCount || 0}`);
-  } else {
-    messages.push('Reply error: ' + replyResult.message);
-  }
-
-  return {
-    success: bounceResult.success && replyResult.success,
-    message: 'Analytics scan complete. ' + messages.join(' | ')
-  };
 }
 
 /**
