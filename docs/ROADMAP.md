@@ -59,15 +59,18 @@ This phase requires setting up external listeners and inbox parsers.
 3. **Automate the Scanner:**
    - Create a time-driven trigger (e.g., every 1-2 hours) to run the Inbox Scanner in the background so the Sheet updates automatically.
 
-### Phase 5: Advanced Automation (Scheduling & Follow-ups)
+### Phase 5: Advanced Automation & Production Readiness
 
-This phase turns the tool from a basic script into a campaign manager.
+This phase hardens the tool for enterprise use and adds scheduling.
 
 1. **Build the Scheduling Mechanism:**
    - Add a Date/Time picker to the Sidebar UI.
    - When the user clicks "Schedule", save the campaign configuration to `PropertiesService`.
    - Use `ScriptApp.newTrigger().timeBased().at(dateObject).create()` to schedule the execution of the Phase 3 Batch Send logic.
-2. **Architect Follow-up Campaigns:**
+2. **Implement Resiliency Patterns:**
+   - Implement exponential backoff (`callWithBackoff`) around advanced Gmail API methods and Sheets reading/writing to survive 429 Too Many Requests errors.
+   - Build a dead-letter error logging system (`ErrorLib.js`) to capture and write background trigger crashes to a hidden `_Logs` sheet.
+3. **Architect Follow-up Campaigns (Pending):**
    - **UI Updates:** Add a "Follow-up" section in the sidebar. Users select a _second_ draft, a wait time (e.g., "3 days later"), and a condition (e.g., "If status is NOT Replied").
    - **State Tracking:** Create a hidden sheet or use `PropertiesService` to store a JSON object of active follow-up rules linked to the primary campaign.
    - **The Follow-up Cron Job:** Modify your background trigger (from Phase 4) to act as a daily cron job. Once a day, it evaluates the rows:

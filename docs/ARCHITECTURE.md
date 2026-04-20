@@ -57,6 +57,7 @@ Because Google Apps Script executions are stateless and have strict time limits,
 
 - **PropertiesService**: Used to store long-term campaign configuration (Selected Draft ID, Sender Alias, Reply-To, Scheduled Time).
 - **CacheService**: Used for short-term, high-frequency state, specifically caching the progress of a running batch so the UI can poll and display a progress bar.
+- **Dead-Letter Logging**: Errors from asynchronous background processes (like time-driven triggers) are sent to a hidden `_Logs` sheet tab via `src/utils/ErrorLib.js`.
 
 ### 1.3 MIME Engine & Sending (`src/utils/MimeBuilder.js` & `src/services/SendEngine.js`)
 
@@ -66,6 +67,7 @@ The system uses the Advanced Gmail API (`Gmail.Users.Messages.send`) rather than
 - **Custom Headers**: During construction, the system injects `X-Campaign-ID` and `X-Row-ID` into the email headers. These are invisible to the recipient but essential for tracking replies and bounces.
 - **Tracking Pixel Injection**: The HTML body is parsed, and an `<img>` tag pointing to the Central Tracker Web App is injected before the closing `</body>` tag.
 - **Timeout Chunking**: The Add-on UI imposes a strict 30-45 second execution limit, so `startBackgroundBatchEmails` creates an immediate background trigger (`timeBased().after(1)`) to offload the work. Once running in the background, GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
+- **Resilient Execution**: `src/utils/Retry.js` wraps external API calls (e.g. `Gmail.Users.Messages.send`) with exponential backoff (`callWithBackoff`) to handle quota/rate limits (HTTP 429 exceptions) gracefully.
 
 ### 1.4 Background Analytics (`src/core/Analytics.js`)
 

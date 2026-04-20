@@ -63,13 +63,14 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 
 - **Test Email Functionality:** Allows the user to send a test email to themselves before running the whole batch to verify formatting and variable substitution.
 - **Scheduling:** Allows users to schedule the mail merge to run at a specific future date and time.
+- **Smart Filtering:** The tool will respect hidden or filtered rows in the spreadsheet, skipping them seamlessly during the batch send process.
 
 ---
 
 ## 6. Non-Functional Requirements & Constraints
 
 - **Google Workspace Limits:** The tool must account for Google's daily email sending quotas (typically 1,500 - 2,000 for Workspace accounts, 400 for trial/free). The UI should warn users if their list exceeds their daily quota.
-- **Performance:** Sending a batch of emails should process quickly. The UI should instantly offload work to an immediate background trigger to avoid the 30-second Add-on execution limit. If the list is massive (e.g., >500 rows), the background script should utilize time-driven triggers to chunk the sending process and avoid the 6-minute Google Apps Script execution timeout.
+- **Performance & Resiliency:** Sending a batch of emails should process quickly. The UI instantly offloads work to an immediate background trigger to avoid the 30-second Add-on execution limit. The background script utilizes time-driven triggers to chunk the sending process and avoid the 6-minute Google Apps Script execution timeout. All API calls (like sending an email or updating the sheet) must be wrapped in exponential backoff logic to prevent failure from sudden rate-limits (Google API 429 Too Many Requests). Background crashes should be logged to a hidden dead-letter `_Logs` spreadsheet tab.
 - **Security:** Ensure the script runs _as the user executing the add-on_ so emails are sent from their account and data access is restricted to their permissions.
 
 ---

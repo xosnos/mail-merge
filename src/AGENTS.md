@@ -17,6 +17,8 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 | `services/GmailService.js` | Gmail API helpers — fetches drafts, aliases, extracts `{{variables}}` from draft content                       |
 | `services/SendEngine.js`   | Core batch send engine — variable substitution, quota management, timeout/resumption, tracking pixel injection |
 | `utils/MimeBuilder.js`     | RFC 2822 MIME message builder — multipart support, inline images, attachments, base64 encoding                 |
+| `utils/Retry.js`         | Exponential backoff utility to gracefully handle Google API 429 errors (Quota/Rate Limits)                     |
+| `utils/ErrorLib.js`      | Dead-letter error logging for background processes (writes to hidden `_Logs` spreadsheet tab)                  |
 | `core/Analytics.js`        | Campaign analytics — bounce/reply detection via Gmail headers, metrics aggregation, background trigger setup   |
 | `appsscript.json`          | Apps Script manifest — OAuth scopes, advanced services, add-on metadata                                        |
 | `.clasp.json`              | CLASP deployment config (script ID)                                                                            |
@@ -31,6 +33,8 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 - `core/Config.js` centralizes all PropertiesService keys in `CONFIG.KEYS` — always use these constants, never hardcode key strings
 - Tracking secrets are stored in PropertiesService (not in code) for security
 - The `CONFIG.TRACKING` object in `core/Config.js` holds the centralized tracker URL and references the secret key
+- All external calls (e.g. `Gmail.Users.Messages.send`) must be wrapped with `callWithBackoff()` from `utils/Retry.js` to ensure resilient execution.
+- Background triggers that crash should log via `ErrorLib.logError(err, context)` to provide diagnostic visibility in the `_Logs` spreadsheet tab.
 - **Dev Mode:** Set `CONFIG.IS_DEV_MODE = true` in `core/Config.js` during local development to add a visual `[DEV]` tag to the UI. Ensure it is set to `false` before deploying a production release.
 
 ### Testing Requirements

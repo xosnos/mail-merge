@@ -40,5 +40,5 @@ This document outlines the current feature set of the UNAVSA Mail Merge tool com
 
 - **Filter Rows / "Send to specific rows":**
   - _YAMM:_ You can use Google Sheets' native filter views to hide rows, and YAMM will only send to the visible rows.
-  - _Our Tool:_ We iterate through the raw data array. If a row has an email and an empty "Merge status", it gets sent, regardless of whether the row is hidden in the UI.
-  - _Implementation Path:_ Update `SpreadsheetApp.getActiveSheet().getRange().getValues()` logic to skip rows where `sheet.isRowHiddenByUser(i)` is true.
+  - _Our Tool:_ This feature is now fully supported. Hidden or filtered rows in your spreadsheet are natively skipped by the Google Apps Script execution.
+  - _Implementation Path:_ Achieved. Using `sheet.isRowHiddenByFilter(row)` and `sheet.isRowHiddenByUser(row)`.

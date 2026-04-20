@@ -10,6 +10,8 @@ A powerful, open-source Google Sheets add-on for personalized mail merges with a
 - **Test Emails**: Send a test email to yourself to verify variables and formatting before running a full campaign.
 - **Analytics Dashboard**: Live view of Sent, Opened, Replied, and Bounced metrics directly in your sidebar.
 - **Draft Validation**: Automatically checks if your draft's variables match your sheet columns before sending.
+- **Smart Filtering**: Hidden or filtered rows in your spreadsheet are automatically skipped during execution.
+- **Resilient Execution**: Enterprise-grade exponential backoff handles Google API rate limits, with background dead-letter error logging to keep batches running smoothly.
 
 ## 🛠 Setup & Installation
 

@@ -522,7 +522,7 @@ function runAnalyticsScanner() {
 }
 
 /**
- * Creates a time-driven trigger to run the analytics scanner every 15 minutes.
+ * Creates a time-driven trigger to run the analytics scanner every 3 hours.
  * Stores the trigger ID in PropertiesService for later cleanup.
  * @returns {Object} { success: boolean, message: string }
  */
