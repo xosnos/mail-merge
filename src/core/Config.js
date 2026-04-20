@@ -29,8 +29,12 @@ const CONFIG = {
     LAST_REPLY_THREAD_TIME: 'YAMM_CLONE_LAST_REPLY_THREAD_TIME'
   },
   TRACKING: {
-    get CENTRAL_URL() { return PropertiesService.getScriptProperties().getProperty('TRACKING_CENTRAL_URL') || ''; },
-    get SECRET_KEY() { return PropertiesService.getScriptProperties().getProperty('TRACKING_SECRET_KEY') || ''; }
+    get CENTRAL_URL() {
+      return PropertiesService.getScriptProperties().getProperty('TRACKING_CENTRAL_URL') || '';
+    },
+    get SECRET_KEY() {
+      return PropertiesService.getScriptProperties().getProperty('TRACKING_SECRET_KEY') || '';
+    }
   }
 };
 
@@ -58,7 +62,7 @@ function getProperty(key) {
  */
 function clearProperties() {
   const props = PropertiesService.getDocumentProperties();
-  Object.values(CONFIG.KEYS).forEach(key => {
+  Object.values(CONFIG.KEYS).forEach((key) => {
     props.deleteProperty(key);
   });
 }

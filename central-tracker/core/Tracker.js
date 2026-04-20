@@ -3,21 +3,21 @@ function getScriptProp(key) {
 }
 
 function getOAuthService(userEmail) {
-    const privateKey = (getScriptProp('SERVICE_ACCOUNT_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
-    return OAuth2.createService('SheetsDWD_' + userEmail)
-      .setTokenUrl('https://oauth2.googleapis.com/token')
-      .setPrivateKey(privateKey)
-      .setIssuer(getScriptProp('SERVICE_ACCOUNT_CLIENT_EMAIL'))
-      .setSubject(userEmail)
-      .setPropertyStore(PropertiesService.getScriptProperties())
-      .setScope('https://www.googleapis.com/auth/spreadsheets');
+  const privateKey = (getScriptProp('SERVICE_ACCOUNT_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
+  return OAuth2.createService('SheetsDWD_' + userEmail)
+    .setTokenUrl('https://oauth2.googleapis.com/token')
+    .setPrivateKey(privateKey)
+    .setIssuer(getScriptProp('SERVICE_ACCOUNT_CLIENT_EMAIL'))
+    .setSubject(userEmail)
+    .setPropertyStore(PropertiesService.getScriptProperties())
+    .setScope('https://www.googleapis.com/auth/spreadsheets');
 }
 
 function doGet(e) {
   try {
     const { sheetId, sheetName, cell, user, ts, tid, sig } = e.parameter;
     if (!sheetId || !sheetName || !cell || !user || !sig) {
-      return ContentService.createTextOutput("Missing params");
+      return ContentService.createTextOutput('Missing params');
     }
 
     const secretKey = getScriptProp('SECRET_KEY');
@@ -34,26 +34,26 @@ function doGet(e) {
     );
 
     if (sig !== expectedSig) {
-      return ContentService.createTextOutput("Invalid signature");
+      return ContentService.createTextOutput('Invalid signature');
     }
 
     if (ts) {
       const OPEN_DELAY_THRESHOLD_MS = 10000; // 10 seconds
       if (Date.now() - parseInt(ts, 10) < OPEN_DELAY_THRESHOLD_MS) {
         // Ignore pre-fetch or immediate user view
-        return ContentService.createTextOutput("OK");
+        return ContentService.createTextOutput('OK');
       }
     }
 
     const service = getOAuthService(user);
     if (!service.hasAccess()) {
       console.log('No access. Error: ', service.getLastError());
-      return ContentService.createTextOutput("OAuth Error");
+      return ContentService.createTextOutput('OAuth Error');
     }
 
     const token = service.getAccessToken();
     const safeSheetName = sheetName.replace(/'/g, "''");
-    
+
     let targetRange = `'${safeSheetName}'!${cell}`;
     if (tid) {
       let needsFullSearch = true;
@@ -61,7 +61,7 @@ function doGet(e) {
       const expectedRow = rowMatch ? parseInt(rowMatch[0], 10) : null;
 
       if (expectedRow) {
-        const fastSearchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodeURIComponent("'" + safeSheetName + "'!1:1")}&ranges=${encodeURIComponent("'" + safeSheetName + "'!" + expectedRow + ":" + expectedRow)}&fields=sheets(data(rowData(values(note,formattedValue))))`;
+        const fastSearchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodeURIComponent("'" + safeSheetName + "'!1:1")}&ranges=${encodeURIComponent("'" + safeSheetName + "'!" + expectedRow + ':' + expectedRow)}&fields=sheets(data(rowData(values(note,formattedValue))))`;
         const fastRes = UrlFetchApp.fetch(fastSearchUrl, {
           method: 'GET',
           headers: { Authorization: 'Bearer ' + token },
@@ -75,13 +75,17 @@ function doGet(e) {
 
           if (fastData.sheets && fastData.sheets[0] && fastData.sheets[0].data) {
             const rangesData = fastData.sheets[0].data;
-            
+
             // Process row 1 for 'merge status' column
             if (rangesData[0] && rangesData[0].rowData && rangesData[0].rowData[0]) {
               const headerValues = rangesData[0].rowData[0].values;
               if (headerValues) {
                 for (let c = 0; c < headerValues.length; c++) {
-                  if (headerValues[c] && headerValues[c].formattedValue && headerValues[c].formattedValue.toLowerCase() === 'merge status') {
+                  if (
+                    headerValues[c] &&
+                    headerValues[c].formattedValue &&
+                    headerValues[c].formattedValue.toLowerCase() === 'merge status'
+                  ) {
                     statusCol = c;
                     break;
                   }
@@ -123,32 +127,42 @@ function doGet(e) {
           headers: { Authorization: 'Bearer ' + token },
           muteHttpExceptions: true
         });
-        
+
         if (searchRes.getResponseCode() === 200) {
           const searchData = JSON.parse(searchRes.getContentText());
-          if (searchData.sheets && searchData.sheets[0] && searchData.sheets[0].data && searchData.sheets[0].data[0] && searchData.sheets[0].data[0].rowData) {
+          if (
+            searchData.sheets &&
+            searchData.sheets[0] &&
+            searchData.sheets[0].data &&
+            searchData.sheets[0].data[0] &&
+            searchData.sheets[0].data[0].rowData
+          ) {
             const rowData = searchData.sheets[0].data[0].rowData;
             let foundRow = -1;
             let statusCol = -1;
-            
+
             for (let r = 0; r < rowData.length; r++) {
               const rowValues = rowData[r].values;
               if (!rowValues) continue;
-              
+
               for (let c = 0; c < rowValues.length; c++) {
                 const cellData = rowValues[c];
                 if (!cellData) continue;
-                
-                if (r === 0 && cellData.formattedValue && cellData.formattedValue.toLowerCase() === 'merge status') {
+
+                if (
+                  r === 0 &&
+                  cellData.formattedValue &&
+                  cellData.formattedValue.toLowerCase() === 'merge status'
+                ) {
                   statusCol = c;
                 }
-                
+
                 if (cellData.note && cellData.note.includes(tid)) {
                   foundRow = r;
                 }
               }
             }
-            
+
             if (foundRow !== -1 && statusCol !== -1) {
               let temp = statusCol;
               let letter = '';
@@ -174,11 +188,12 @@ function doGet(e) {
 
     if (getRes.getResponseCode() !== 200) {
       console.log('GET Error:', getRes.getContentText());
-      return ContentService.createTextOutput("API Error");
+      return ContentService.createTextOutput('API Error');
     }
 
     const data = JSON.parse(getRes.getContentText());
-    const existingVal = (data.values && data.values[0] && data.values[0][0]) ? String(data.values[0][0]) : "";
+    const existingVal =
+      data.values && data.values[0] && data.values[0][0] ? String(data.values[0][0]) : '';
 
     const lower = existingVal.toLowerCase();
     if (lower.startsWith('sent') || lower.includes('opened')) {
@@ -186,7 +201,7 @@ function doGet(e) {
       const timeZone = Session.getScriptTimeZone();
       const timeString = Utilities.formatDate(new Date(), timeZone, 'MM/dd HH:mm');
       const newVal = `Opened ${timeString}`;
-      
+
       const putRes = UrlFetchApp.fetch(`${url}?valueInputOption=USER_ENTERED`, {
         method: 'PUT',
         headers: {
@@ -200,10 +215,10 @@ function doGet(e) {
       });
       console.log('PUT Response:', putRes.getContentText());
     }
-  } catch(err) {
-    console.log("Error:", err.message);
+  } catch (err) {
+    console.log('Error:', err.message);
   }
 
   // A webhook pixel ping can return an empty response
-  return ContentService.createTextOutput("OK");
+  return ContentService.createTextOutput('OK');
 }

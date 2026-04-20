@@ -12,11 +12,11 @@ function checkBounces(startTime = Date.now()) {
   try {
     let spreadsheet;
     let sheet;
-    
+
     // Attempt to load the saved context for background execution
     const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
     const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
-    
+
     if (savedSpreadsheetId && savedSheetName) {
       try {
         spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
@@ -24,31 +24,36 @@ function checkBounces(startTime = Date.now()) {
       } catch (e) {
         // Fallback below if the sheet was deleted or permissions changed
       }
-    } 
-    
+    }
+
     // Fallback to active spreadsheet (for manual UI clicks)
     if (!spreadsheet || !sheet) {
       spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
       if (spreadsheet) {
-         sheet = spreadsheet.getActiveSheet();
+        sheet = spreadsheet.getActiveSheet();
       }
     }
-    
-    if (!sheet) return { success: false, message: 'Could not resolve target sheet.', bounceCount: 0 };
+
+    if (!sheet)
+      return { success: false, message: 'Could not resolve target sheet.', bounceCount: 0 };
 
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', bounceCount: 0 };
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN);
-    let emailColIndex = configuredEmailCol ? headers.findIndex(h => String(h).trim() === configuredEmailCol) : -1;
+    let emailColIndex = configuredEmailCol
+      ? headers.findIndex((h) => String(h).trim() === configuredEmailCol)
+      : -1;
     if (emailColIndex === -1) {
-      emailColIndex = headers.findIndex(h => String(h).toLowerCase().includes('email'));
+      emailColIndex = headers.findIndex((h) => String(h).toLowerCase().includes('email'));
     }
-    const statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
+    const statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
 
-    if (emailColIndex === -1) return { success: false, message: 'No email column to match.', bounceCount: 0 };
-    if (statusColIndex === -1) return { success: false, message: "No 'Merge status' column found.", bounceCount: 0 };
+    if (emailColIndex === -1)
+      return { success: false, message: 'No email column to match.', bounceCount: 0 };
+    if (statusColIndex === -1)
+      return { success: false, message: "No 'Merge status' column found.", bounceCount: 0 };
 
     // Get current campaign ID for header matching
     const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID) || '';
@@ -56,7 +61,11 @@ function checkBounces(startTime = Date.now()) {
 
     const MAX_EXECUTION_TIME_MS = 210000; // 3.5 minutes
     if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-      return { success: true, message: 'Execution limit reached before bounces scan.', bounceCount: 0 };
+      return {
+        success: true,
+        message: 'Execution limit reached before bounces scan.',
+        bounceCount: 0
+      };
     }
 
     // Pre-compute Tracking ID lookup (O(1) search)
@@ -74,35 +83,39 @@ function checkBounces(startTime = Date.now()) {
     }
 
     if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-      return { success: true, message: 'Execution limit reached during bounces lookup.', bounceCount: 0 };
+      return {
+        success: true,
+        message: 'Execution limit reached during bounces lookup.',
+        bounceCount: 0
+      };
     }
 
     // Search for recent bounce messages
     let lastBounceTimeStr = getProperty(CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME);
     let lastBounceTime = lastBounceTimeStr ? parseInt(lastBounceTimeStr, 10) : 0;
-    
+
     let searchQuery = 'from:mailer-daemon in:inbox newer_than:7d';
     if (lastBounceTime > 0) {
       searchQuery = `from:mailer-daemon in:inbox after:${Math.floor(lastBounceTime / 1000)}`;
     }
     const threads = GmailApp.search(searchQuery);
     threads.reverse(); // Process oldest to newest to ensure forward progress on timeout
-    
+
     const bouncedEmails = {};
     let maxProcessedTime = lastBounceTime;
 
     for (let i = 0; i < threads.length; i++) {
       const thread = threads[i];
       const threadTime = thread.getLastMessageDate().getTime();
-      
+
       if (threadTime <= lastBounceTime) continue;
 
       if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-        console.log("Analytics scanner reaching execution limit. Halting bounces scan.");
+        console.log('Analytics scanner reaching execution limit. Halting bounces scan.');
         break;
       }
       const msgs = thread.getMessages();
-      msgs.forEach(m => {
+      msgs.forEach((m) => {
         const body = m.getPlainBody();
         let rawContent = '';
 
@@ -110,7 +123,9 @@ function checkBounces(startTime = Date.now()) {
         try {
           const rawMsg = Gmail.Users.Messages.get('me', m.getId(), { format: 'raw' });
           if (rawMsg && rawMsg.raw) {
-            rawContent = Utilities.newBlob(Utilities.base64DecodeWebSafe(rawMsg.raw)).getDataAsString();
+            rawContent = Utilities.newBlob(
+              Utilities.base64DecodeWebSafe(rawMsg.raw)
+            ).getDataAsString();
           }
         } catch (e) {
           // Fall back to body-only matching
@@ -140,7 +155,7 @@ function checkBounces(startTime = Date.now()) {
           // Fallback: extract email addresses from NDR body
           const emailMatches = body.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/g);
           if (emailMatches) {
-            emailMatches.forEach(em => {
+            emailMatches.forEach((em) => {
               bouncedEmails[em.toLowerCase()] = true;
             });
           }
@@ -154,7 +169,11 @@ function checkBounces(startTime = Date.now()) {
     }
 
     if (Object.keys(bouncedEmails).length === 0) {
-      return { success: true, message: 'No recent bounce notifications found in inbox.', bounceCount: 0 };
+      return {
+        success: true,
+        message: 'No recent bounce notifications found in inbox.',
+        bounceCount: 0
+      };
     }
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
@@ -172,7 +191,12 @@ function checkBounces(startTime = Date.now()) {
 
       // Only process rows that have actually been sent for this campaign
       // This prevents applying 'Bounced' to empty/unprocessed rows.
-      if (!existingStatus.includes('sent') && !existingStatus.includes('opened') && !existingStatus.includes('replied')) continue;
+      if (
+        !existingStatus.includes('sent') &&
+        !existingStatus.includes('opened') &&
+        !existingStatus.includes('replied')
+      )
+        continue;
 
       const rowNum = i + 2;
       let isBounced = false;
@@ -191,7 +215,11 @@ function checkBounces(startTime = Date.now()) {
       }
     }
 
-    return { success: true, message: `Checked bounces. Marked ${bounceCount} rows as bounced.`, bounceCount };
+    return {
+      success: true,
+      message: `Checked bounces. Marked ${bounceCount} rows as bounced.`,
+      bounceCount
+    };
   } catch (err) {
     return { success: false, message: err.message, bounceCount: 0 };
   }
@@ -206,11 +234,11 @@ function checkReplies(startTime = Date.now()) {
   try {
     let spreadsheet;
     let sheet;
-    
+
     // Attempt to load the saved context for background execution
     const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
     const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
-    
+
     if (savedSpreadsheetId && savedSheetName) {
       try {
         spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
@@ -218,31 +246,36 @@ function checkReplies(startTime = Date.now()) {
       } catch (e) {
         // Fallback below if the sheet was deleted or permissions changed
       }
-    } 
-    
+    }
+
     // Fallback to active spreadsheet (for manual UI clicks)
     if (!spreadsheet || !sheet) {
       spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
       if (spreadsheet) {
-         sheet = spreadsheet.getActiveSheet();
+        sheet = spreadsheet.getActiveSheet();
       }
     }
-    
-    if (!sheet) return { success: false, message: 'Could not resolve target sheet.', replyCount: 0 };
+
+    if (!sheet)
+      return { success: false, message: 'Could not resolve target sheet.', replyCount: 0 };
 
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', replyCount: 0 };
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN);
-    let emailColIndex = configuredEmailCol ? headers.findIndex(h => String(h).trim() === configuredEmailCol) : -1;
+    let emailColIndex = configuredEmailCol
+      ? headers.findIndex((h) => String(h).trim() === configuredEmailCol)
+      : -1;
     if (emailColIndex === -1) {
-      emailColIndex = headers.findIndex(h => String(h).toLowerCase().includes('email'));
+      emailColIndex = headers.findIndex((h) => String(h).toLowerCase().includes('email'));
     }
-    const statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
+    const statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
 
-    if (emailColIndex === -1) return { success: false, message: 'No email column found.', replyCount: 0 };
-    if (statusColIndex === -1) return { success: false, message: "No 'Merge status' column found.", replyCount: 0 };
+    if (emailColIndex === -1)
+      return { success: false, message: 'No email column found.', replyCount: 0 };
+    if (statusColIndex === -1)
+      return { success: false, message: "No 'Merge status' column found.", replyCount: 0 };
 
     const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID);
     if (!currentCampaignId) {
@@ -253,7 +286,11 @@ function checkReplies(startTime = Date.now()) {
 
     const MAX_EXECUTION_TIME_MS = 210000; // 3.5 minutes
     if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-      return { success: true, message: 'Execution limit reached before replies scan.', replyCount: 0 };
+      return {
+        success: true,
+        message: 'Execution limit reached before replies scan.',
+        replyCount: 0
+      };
     }
 
     // Pre-compute Tracking ID lookup (O(1) search)
@@ -271,7 +308,11 @@ function checkReplies(startTime = Date.now()) {
     }
 
     if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-      return { success: true, message: 'Execution limit reached during replies lookup.', replyCount: 0 };
+      return {
+        success: true,
+        message: 'Execution limit reached during replies lookup.',
+        replyCount: 0
+      };
     }
 
     // Build a lookup of emails → row numbers from the sheet
@@ -287,7 +328,11 @@ function checkReplies(startTime = Date.now()) {
     });
 
     if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-      return { success: true, message: 'Execution limit reached before Gmail search.', replyCount: 0 };
+      return {
+        success: true,
+        message: 'Execution limit reached before Gmail search.',
+        replyCount: 0
+      };
     }
 
     // Search for recent replies in inbox (not sent by us)
@@ -316,11 +361,11 @@ function checkReplies(startTime = Date.now()) {
     for (let i = 0; i < threads.length; i++) {
       const thread = threads[i];
       const threadTime = thread.getLastMessageDate().getTime();
-      
+
       if (threadTime <= lastReplyTime) continue;
 
       if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
-        console.log("Analytics scanner reaching execution limit. Halting replies scan.");
+        console.log('Analytics scanner reaching execution limit. Halting replies scan.');
         break;
       }
       const messages = thread.getMessages();
@@ -332,9 +377,12 @@ function checkReplies(startTime = Date.now()) {
       // First pass: determine if this thread belongs to our campaign
       for (const msg of messages) {
         try {
-          const fullMsg = Gmail.Users.Messages.get('me', msg.getId(), { format: 'metadata', metadataHeaders: ['X-Campaign-ID', 'X-Row-ID', 'X-Tracking-ID'] });
+          const fullMsg = Gmail.Users.Messages.get('me', msg.getId(), {
+            format: 'metadata',
+            metadataHeaders: ['X-Campaign-ID', 'X-Row-ID', 'X-Tracking-ID']
+          });
           if (fullMsg && fullMsg.payload && fullMsg.payload.headers) {
-            fullMsg.payload.headers.forEach(header => {
+            fullMsg.payload.headers.forEach((header) => {
               const headerName = String(header.name || '').toLowerCase();
               const headerValue = String(header.value || '').trim();
               if (headerName === 'x-campaign-id' && headerValue === currentCampaignId) {
@@ -357,13 +405,16 @@ function checkReplies(startTime = Date.now()) {
       if (!threadHasCampaign) continue;
 
       // Second pass: process replies in this campaign thread
-      messages.forEach(msg => {
+      messages.forEach((msg) => {
         const fromHeader = String(msg.getFrom() || '');
         const senderMatch = fromHeader.match(/<([^>]+)>/);
         const fromAddress = (senderMatch ? senderMatch[1] : fromHeader).trim().toLowerCase();
 
         // Skip messages sent by us
-        if (fromAddress === Session.getActiveUser().getEmail().toLowerCase() || getProperty(CONFIG.KEYS.SENDER_ALIAS)?.toLowerCase() === fromAddress) {
+        if (
+          fromAddress === Session.getActiveUser().getEmail().toLowerCase() ||
+          getProperty(CONFIG.KEYS.SENDER_ALIAS)?.toLowerCase() === fromAddress
+        ) {
           return;
         }
 
@@ -373,13 +424,21 @@ function checkReplies(startTime = Date.now()) {
         }
 
         // Search for row by tracking ID
-        const foundRowByTid = matchedTid ? (tidToRow[matchedTid] || -1) : -1;
+        const foundRowByTid = matchedTid ? tidToRow[matchedTid] || -1 : -1;
 
         const rowInfo = emailToRow[fromAddress];
 
         if (foundRowByTid !== -1 && !processedRows[foundRowByTid]) {
-          const existingStatus = String(sheet.getRange(foundRowByTid, statusColIndex + 1).getValue()).trim().toLowerCase();
-          if ((existingStatus.includes('sent') || existingStatus.includes('opened')) && !existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
+          const existingStatus = String(
+            sheet.getRange(foundRowByTid, statusColIndex + 1).getValue()
+          )
+            .trim()
+            .toLowerCase();
+          if (
+            (existingStatus.includes('sent') || existingStatus.includes('opened')) &&
+            !existingStatus.includes('replied') &&
+            !existingStatus.includes('bounced')
+          ) {
             sheet.getRange(foundRowByTid, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[foundRowByTid] = true;
             replyCount++;
@@ -387,15 +446,25 @@ function checkReplies(startTime = Date.now()) {
         } else if (rowInfo && !processedRows[rowInfo.rowNum]) {
           const currentStatus = rowInfo.status.toLowerCase();
           // Only update if it was actually sent/opened, and not already marked as replied or bounced
-          if ((currentStatus.includes('sent') || currentStatus.includes('opened')) && !currentStatus.includes('replied') && !currentStatus.includes('bounced')) {
+          if (
+            (currentStatus.includes('sent') || currentStatus.includes('opened')) &&
+            !currentStatus.includes('replied') &&
+            !currentStatus.includes('bounced')
+          ) {
             sheet.getRange(rowInfo.rowNum, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[rowInfo.rowNum] = true;
             replyCount++;
           }
         } else if (matchedRowId && !processedRows[matchedRowId]) {
           // Fallback: use X-Row-ID to identify the row directly
-          const existingStatus = String(sheet.getRange(matchedRowId, statusColIndex + 1).getValue()).trim().toLowerCase();
-          if ((existingStatus.includes('sent') || existingStatus.includes('opened')) && !existingStatus.includes('replied') && !existingStatus.includes('bounced')) {
+          const existingStatus = String(sheet.getRange(matchedRowId, statusColIndex + 1).getValue())
+            .trim()
+            .toLowerCase();
+          if (
+            (existingStatus.includes('sent') || existingStatus.includes('opened')) &&
+            !existingStatus.includes('replied') &&
+            !existingStatus.includes('bounced')
+          ) {
             sheet.getRange(matchedRowId, statusColIndex + 1).setValue(`Replied ${timeString}`);
             processedRows[matchedRowId] = true;
             replyCount++;
@@ -409,7 +478,11 @@ function checkReplies(startTime = Date.now()) {
       setProperty(CONFIG.KEYS.LAST_REPLY_THREAD_TIME, maxProcessedTime.toString());
     }
 
-    return { success: true, message: `Checked replies. Found ${replyCount} new replies.`, replyCount };
+    return {
+      success: true,
+      message: `Checked replies. Found ${replyCount} new replies.`,
+      replyCount
+    };
   } catch (err) {
     return { success: false, message: err.message, replyCount: 0 };
   }
@@ -453,10 +526,7 @@ function setupAnalyticsTrigger() {
     // Remove existing trigger first to avoid duplicates
     removeAnalyticsTrigger();
 
-    const trigger = ScriptApp.newTrigger('runAnalyticsScanner')
-      .timeBased()
-      .everyHours(3)
-      .create();
+    const trigger = ScriptApp.newTrigger('runAnalyticsScanner').timeBased().everyHours(3).create();
 
     setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId());
 
@@ -485,7 +555,7 @@ function removeAnalyticsTrigger() {
       deleteTriggerByHandler('runAnalyticsScanner');
     } else {
       const triggers = ScriptApp.getProjectTriggers();
-      triggers.forEach(t => {
+      triggers.forEach((t) => {
         if (t.getHandlerFunction() === 'runAnalyticsScanner') {
           ScriptApp.deleteTrigger(t);
         }
@@ -500,7 +570,6 @@ function removeAnalyticsTrigger() {
   }
 }
 
-
 /**
  * Calculates campaign metrics based on the "Merge status" column.
  * @returns {Object} { total: number, sent: number, opened: number, replied: number, bounced: number }
@@ -510,11 +579,11 @@ function getCampaignMetrics() {
   try {
     let spreadsheet;
     let sheet;
-    
+
     // Attempt to load the saved context for background execution
     const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
     const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
-    
+
     if (savedSpreadsheetId && savedSheetName) {
       try {
         spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
@@ -522,30 +591,30 @@ function getCampaignMetrics() {
       } catch (e) {
         // Fallback below if the sheet was deleted or permissions changed
       }
-    } 
-    
+    }
+
     // Fallback to active spreadsheet (for manual UI clicks)
     if (!spreadsheet || !sheet) {
       spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
       if (spreadsheet) {
-         sheet = spreadsheet.getActiveSheet();
+        sheet = spreadsheet.getActiveSheet();
       }
     }
-    
+
     if (!sheet) return metrics;
 
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return metrics;
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
+    const statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
 
     if (statusColIndex === -1) return metrics;
 
     const statusRange = sheet.getRange(2, statusColIndex + 1, lastRow - 1, 1);
     const statuses = statusRange.getValues();
 
-    statuses.forEach(row => {
+    statuses.forEach((row) => {
       const status = String(row[0]).trim().toLowerCase();
       if (!status) return; // Skip empty statuses
 

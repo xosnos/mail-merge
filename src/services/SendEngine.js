@@ -17,9 +17,10 @@ function replaceVariables(template, headers, rowData) {
   if (!template) return '';
   let result = template;
   headers.forEach((header, index) => {
-    const escapedHeader = header.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const escapedHeader = header.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
     const regex = new RegExp('\\{\\{\\s*' + escapedHeader + '\\s*\\}\\}', 'gi');
-    const replacement = rowData[index] !== undefined && rowData[index] !== null ? String(rowData[index]) : '';
+    const replacement =
+      rowData[index] !== undefined && rowData[index] !== null ? String(rowData[index]) : '';
     result = result.replace(regex, replacement);
   });
   return result;
@@ -68,7 +69,7 @@ function sendTestEmail(config) {
 
     // Extract inline image Content-IDs from the draft
     const inlineContentIds = getInlineContentIds_(msg.getId());
-    const attachments = msg.getAttachments({includeInlineImages: true});
+    const attachments = msg.getAttachments({ includeInlineImages: true });
 
     // Build MIME message with custom tracking headers
     const raw = buildMimeMessage({
@@ -110,7 +111,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     if ((!startRow || startRow === 0) && typeof cleanupOrphanedTriggers === 'function') {
       cleanupOrphanedTriggers();
     }
-    
+
     // Save state in case of UI reload
     setProperty(CONFIG.KEYS.SELECTED_DRAFT_ID, config.draftId);
     setProperty(CONFIG.KEYS.SENDER_NAME, config.senderName || '');
@@ -140,19 +141,25 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     // Pre-flight validation
     const validation = validateTemplate(config.draftId);
     if (!validation.isValid) {
-      return { success: false, message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ') };
+      return {
+        success: false,
+        message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ')
+      };
     }
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
     // Determine which columns are email and merge status
     const emailColIndex = headers.indexOf(config.emailColumn);
-    let statusColIndex = headers.findIndex(h => String(h).toLowerCase() === 'merge status');
+    let statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
 
     if (emailColIndex === -1) throw new Error('Email column not found.');
     if (statusColIndex === -1) {
       statusColIndex = headers.length;
-      sheet.getRange(1, statusColIndex + 1).setValue('Merge status').setFontWeight('bold');
+      sheet
+        .getRange(1, statusColIndex + 1)
+        .setValue('Merge status')
+        .setFontWeight('bold');
     }
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
@@ -165,7 +172,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       if (sheet.isRowHiddenByUser(j + 2) || sheet.isRowHiddenByFilter(j + 2)) continue;
 
       const row = data[j];
-      if (row.every(cell => !cell || String(cell).trim() === '')) continue;
+      if (row.every((cell) => !cell || String(cell).trim() === '')) continue;
       const status = row[statusColIndex];
       const email = String(row[emailColIndex]).trim();
       if (!email || (status && status !== '')) continue;
@@ -176,13 +183,17 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     // Initialize progress Cache
     const cache = CacheService.getDocumentCache();
-    cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: 0, total: totalToSend, status: 'sending' }), 600);
+    cache.put(
+      CONFIG.KEYS.PROGRESS_CACHE,
+      JSON.stringify({ current: 0, total: totalToSend, status: 'sending' }),
+      600
+    );
 
     const draft = GmailApp.getDraft(config.draftId);
     if (!draft) throw new Error('Draft not found.');
     const msg = draft.getMessage();
     const inlineContentIds = getInlineContentIds_(msg.getId());
-    const attachments = msg.getAttachments({includeInlineImages: true});
+    const attachments = msg.getAttachments({ includeInlineImages: true });
 
     // Generate or retrieve campaign ID
     let campaignId;
@@ -196,15 +207,15 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       const currentSheetId = config.spreadsheetId || spreadsheet.getId();
       campaignId = generateCampaignId_(currentSheetId);
       setProperty(CONFIG.KEYS.CAMPAIGN_ID, campaignId);
-      
+
       // Setup Campaign Label based on subject
       const originalSubject = msg.getSubject() || 'Untitled Campaign';
       let labelName = 'UNAVSA - ' + originalSubject.trim().substring(0, 100);
-      labelName = labelName.replace(/[\/\\:*?"<>|]/g, '').trim(); // Sanitize invalid label characters
-      
+      labelName = labelName.replace(/[/\\:*?"<>|]/g, '').trim(); // Sanitize invalid label characters
+
       try {
         const labelsList = Gmail.Users.Labels.list('me');
-        const existingLabel = labelsList.labels.find(l => l.name === labelName);
+        const existingLabel = labelsList.labels.find((l) => l.name === labelName);
         if (existingLabel) {
           campaignLabelId = existingLabel.id;
         } else {
@@ -214,7 +225,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         setProperty(CONFIG.KEYS.CAMPAIGN_LABEL, labelName);
         setProperty(CONFIG.KEYS.CAMPAIGN_LABEL_ID, campaignLabelId);
       } catch (e) {
-        console.error("Failed to setup campaign label", e);
+        console.error('Failed to setup campaign label', e);
       }
     }
 
@@ -236,7 +247,11 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
           .after(60 * 60 * 1000) // resume in 1 hour due to Add-on limitations
           .create();
 
-        cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }), 7200);
+        cache.put(
+          CONFIG.KEYS.PROGRESS_CACHE,
+          JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }),
+          7200
+        );
 
         return {
           success: true,
@@ -253,7 +268,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       const row = data[i];
 
       // Skip completely empty rows
-      if (row.every(cell => !cell || String(cell).trim() === '')) {
+      if (row.every((cell) => !cell || String(cell).trim() === '')) {
         continue;
       }
 
@@ -292,22 +307,29 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         const sheetId = config.spreadsheetId || spreadsheet.getId();
         const sheetName = encodeURIComponent(config.sheetName || sheet.getName());
         const rowNum = i + 2;
-        
+
         let col = statusColIndex;
-        let colLetters = "";
+        let colLetters = '';
         while (col >= 0) {
           colLetters = String.fromCharCode(65 + (col % 26)) + colLetters;
           col = Math.floor(col / 26) - 1;
         }
         const cell = `${colLetters}${rowNum}`;
         const user = Session.getActiveUser().getEmail();
-        
+
         const ts = Date.now();
-        const payload = JSON.stringify({ sheetId, sheetName: sheet.getName(), cell, user, ts, tid: trackingId });
+        const payload = JSON.stringify({
+          sheetId,
+          sheetName: sheet.getName(),
+          cell,
+          user,
+          ts,
+          tid: trackingId
+        });
         const sig = Utilities.base64EncodeWebSafe(
           Utilities.computeHmacSha256Signature(payload, CONFIG.TRACKING.SECRET_KEY)
         );
-        
+
         const pixelUrl = `${CONFIG.TRACKING.CENTRAL_URL}?sheetId=${sheetId}&sheetName=${sheetName}&cell=${cell}&user=${encodeURIComponent(user)}&ts=${ts}&tid=${trackingId}&sig=${sig}`;
         const safePixelUrl = pixelUrl.replace(/&/g, '&amp;');
         const imgTag = `<img src="${safePixelUrl}" alt="" width="1" height="1" border="0" />`;
@@ -341,21 +363,25 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
       try {
         const sentMessage = Gmail.Users.Messages.send({ raw: raw }, 'me');
-        
+
         if (campaignLabelId) {
           try {
             Gmail.Users.Messages.modify({ addLabelIds: [campaignLabelId] }, 'me', sentMessage.id);
-          } catch(labelErr) {
-            console.error("Failed to label message", labelErr);
+          } catch (labelErr) {
+            console.error('Failed to label message', labelErr);
           }
         }
-        
+
         const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
         const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
         sheet.getRange(i + 2, statusColIndex + 1).setValue(`Sent ${timeString}`);
         sentCount++;
         // Update Cache periodically
-        cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }), 600);
+        cache.put(
+          CONFIG.KEYS.PROGRESS_CACHE,
+          JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }),
+          600
+        );
       } catch (e) {
         sheet.getRange(i + 2, statusColIndex + 1).setValue('Error: ' + e.message);
       }
@@ -366,13 +392,17 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.BATCH_CONFIG);
 
     // Update progress on completion
-    cache.put(CONFIG.KEYS.PROGRESS_CACHE, JSON.stringify({ current: sentCount, total: totalToSend, status: 'complete' }), 600);
+    cache.put(
+      CONFIG.KEYS.PROGRESS_CACHE,
+      JSON.stringify({ current: sentCount, total: totalToSend, status: 'complete' }),
+      600
+    );
 
     // Enable background scanning since toggle is removed
     setupAnalyticsTrigger();
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       message: `Successfully sent ${sentCount} emails.`,
       sentCount: sentCount,
       total: totalToSend
@@ -393,7 +423,7 @@ function resumeBatchSend() {
     deleteTriggerByHandler('resumeBatchSend');
   } else {
     const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(t => {
+    triggers.forEach((t) => {
       if (t.getHandlerFunction() === 'resumeBatchSend') {
         ScriptApp.deleteTrigger(t);
       }
@@ -442,7 +472,10 @@ function startBackgroundBatchEmails(config) {
     // Pre-flight validation
     const validation = validateTemplate(config.draftId);
     if (!validation.isValid) {
-      return { success: false, message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ') };
+      return {
+        success: false,
+        message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ')
+      };
     }
 
     // Save the config for the background run
@@ -453,7 +486,7 @@ function startBackgroundBatchEmails(config) {
       deleteTriggerByHandler('runBackgroundBatchSend');
     } else {
       const triggers = ScriptApp.getProjectTriggers();
-      triggers.forEach(t => {
+      triggers.forEach((t) => {
         if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
           ScriptApp.deleteTrigger(t);
         }
@@ -461,10 +494,7 @@ function startBackgroundBatchEmails(config) {
     }
 
     // Create the trigger to fire almost immediately (1 millisecond)
-    ScriptApp.newTrigger('runBackgroundBatchSend')
-      .timeBased()
-      .after(1)
-      .create();
+    ScriptApp.newTrigger('runBackgroundBatchSend').timeBased().after(1).create();
 
     return {
       success: true,
@@ -484,7 +514,7 @@ function runBackgroundBatchSend() {
     deleteTriggerByHandler('runBackgroundBatchSend');
   } else {
     const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(t => {
+    triggers.forEach((t) => {
       if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
         ScriptApp.deleteTrigger(t);
       }
@@ -499,7 +529,7 @@ function runBackgroundBatchSend() {
   }
 
   const config = JSON.parse(configJson);
-  
+
   console.log('runBackgroundBatchSend: Starting background batch send.');
   const result = sendBatchEmails(config, 0); // isUiContext defaults to false
   console.log('runBackgroundBatchSend result: ' + JSON.stringify(result));
@@ -513,18 +543,21 @@ function runBackgroundBatchSend() {
 function scheduleBatchEmails(config) {
   try {
     if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers();
-    
+
     const scheduleTime = new Date(config.scheduleDate).getTime();
     const now = Date.now();
     // Allow a 60-second grace period for "future" checks to account for UI lag/clock drift
-    if (scheduleTime <= (now - 60000)) {
+    if (scheduleTime <= now - 60000) {
       throw new Error('Scheduled time must be in the future.');
     }
 
     // Pre-flight validation
     const validation = validateTemplate(config.draftId);
     if (!validation.isValid) {
-      return { success: false, message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ') };
+      return {
+        success: false,
+        message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ')
+      };
     }
 
     // Save the config for the scheduled run
@@ -535,7 +568,7 @@ function scheduleBatchEmails(config) {
       deleteTriggerByHandler('startScheduledBatchSend');
     } else {
       const triggers = ScriptApp.getProjectTriggers();
-      triggers.forEach(t => {
+      triggers.forEach((t) => {
         if (t.getHandlerFunction() === 'startScheduledBatchSend') {
           ScriptApp.deleteTrigger(t);
         }
@@ -543,10 +576,7 @@ function scheduleBatchEmails(config) {
     }
 
     // Create the trigger
-    ScriptApp.newTrigger('startScheduledBatchSend')
-      .timeBased()
-      .at(new Date(scheduleTime))
-      .create();
+    ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(new Date(scheduleTime)).create();
 
     const formattedDate = new Date(scheduleTime).toLocaleString();
     return { success: true, message: `Campaign successfully scheduled for ${formattedDate}` };
@@ -564,7 +594,7 @@ function startScheduledBatchSend() {
     deleteTriggerByHandler('startScheduledBatchSend');
   } else {
     const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(t => {
+    triggers.forEach((t) => {
       if (t.getHandlerFunction() === 'startScheduledBatchSend') {
         ScriptApp.deleteTrigger(t);
       }

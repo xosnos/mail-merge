@@ -14,6 +14,7 @@ A powerful, open-source Google Sheets add-on for personalized mail merges with a
 ## 🛠 Setup & Installation
 
 ### For Users
+
 1. Open your Google Sheet.
 2. Go to **Extensions > Add-ons > Get add-ons**.
 3. Search for "UNAVSA Mail Merge" (Internal) and install.

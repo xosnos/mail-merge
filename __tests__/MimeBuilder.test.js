@@ -4,7 +4,12 @@ const { buildMimeMessage } = require('../src/utils/MimeBuilder');
 global.Utilities = {
   getUuid: () => 'mock-uuid',
   base64Encode: (str) => Buffer.from(str).toString('base64'),
-  base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+  base64EncodeWebSafe: (bytes) =>
+    Buffer.from(bytes)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, ''),
   Charset: { UTF_8: 'UTF-8' },
   newBlob: (str) => ({ getBytes: () => Buffer.from(str) })
 };
@@ -26,7 +31,7 @@ describe('MimeBuilder', () => {
 
       const result = buildMimeMessage(opts);
       expect(typeof result).toBe('string');
-      
+
       // Decode result to check contents
       const decoded = Buffer.from(result, 'base64').toString('utf8');
       expect(decoded).toContain('To: recipient@example.com');
