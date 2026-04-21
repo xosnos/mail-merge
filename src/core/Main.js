@@ -192,13 +192,15 @@ function applyConditionalFormatting_(sheet, colIndex) {
   };
 
   // Check if we already have our rules to avoid stacking (check for 'Email opened' on this column)
-  const hasRules = rules.some(rule => {
+  const hasRules = rules.some((rule) => {
     const condition = rule.getBooleanCondition();
     if (!condition) return false;
     const ruleRanges = rule.getRanges();
-    return condition.getCriteriaType() === SpreadsheetApp.BooleanCriteria.TEXT_EQUAL_TO &&
-           condition.getCriteriaValues()[0] === 'Email opened' &&
-           ruleRanges.some(r => r.getColumn() === colIndex);
+    return (
+      condition.getCriteriaType() === SpreadsheetApp.BooleanCriteria.TEXT_EQUAL_TO &&
+      condition.getCriteriaValues()[0] === 'Email opened' &&
+      ruleRanges.some((r) => r.getColumn() === colIndex)
+    );
   });
 
   if (!hasRules) {

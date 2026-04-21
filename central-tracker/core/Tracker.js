@@ -178,7 +178,7 @@ function doGet(e) {
     }
 
     const cellUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodeURIComponent(targetRange)}&fields=sheets(properties(sheetId),data(rowData(values(note,formattedValue))))`;
-    
+
     // 1. Get current cell value, note, and tabId
     const getRes = UrlFetchApp.fetch(cellUrl, {
       method: 'GET',
@@ -193,16 +193,22 @@ function doGet(e) {
 
     const data = JSON.parse(getRes.getContentText());
     if (!data.sheets || !data.sheets[0]) return ContentService.createTextOutput('OK');
-    
+
     const tabId = data.sheets[0].properties.sheetId;
     let existingVal = '';
     let existingNote = '';
-    
-    if (data.sheets[0].data && data.sheets[0].data[0] && data.sheets[0].data[0].rowData && data.sheets[0].data[0].rowData[0] && data.sheets[0].data[0].rowData[0].values) {
+
+    if (
+      data.sheets[0].data &&
+      data.sheets[0].data[0] &&
+      data.sheets[0].data[0].rowData &&
+      data.sheets[0].data[0].rowData[0] &&
+      data.sheets[0].data[0].rowData[0].values
+    ) {
       const cellData = data.sheets[0].data[0].rowData[0].values[0];
       if (cellData) {
-         existingVal = cellData.formattedValue || '';
-         existingNote = cellData.note || '';
+        existingVal = cellData.formattedValue || '';
+        existingNote = cellData.note || '';
       }
     }
 
@@ -212,49 +218,57 @@ function doGet(e) {
       const timeZone = Session.getScriptTimeZone();
       const timeString = Utilities.formatDate(new Date(), timeZone, 'MM/dd HH:mm z');
       const newVal = 'Email opened';
-      const newNote = existingNote ? existingNote + '\nOpened: ' + timeString : 'Opened: ' + timeString;
+      const newNote = existingNote
+        ? existingNote + '\nOpened: ' + timeString
+        : 'Opened: ' + timeString;
 
       const a1Match = targetRange.match(/!([A-Z]+)(\d+)$/);
       if (a1Match) {
-         const colStr = a1Match[1];
-         const rowStr = a1Match[2];
-         const rowIdx = parseInt(rowStr, 10) - 1;
-         let colIdx = 0;
-         for (let i = 0; i < colStr.length; i++) {
-           colIdx = colIdx * 26 + (colStr.charCodeAt(i) - 64);
-         }
-         colIdx = colIdx - 1;
+        const colStr = a1Match[1];
+        const rowStr = a1Match[2];
+        const rowIdx = parseInt(rowStr, 10) - 1;
+        let colIdx = 0;
+        for (let i = 0; i < colStr.length; i++) {
+          colIdx = colIdx * 26 + (colStr.charCodeAt(i) - 64);
+        }
+        colIdx = colIdx - 1;
 
-         const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`;
-         const putRes = UrlFetchApp.fetch(batchUrl, {
-           method: 'POST',
-           headers: {
-             Authorization: 'Bearer ' + token,
-             'Content-Type': 'application/json'
-           },
-           payload: JSON.stringify({
-             requests: [{
-               updateCells: {
-                 range: {
-                   sheetId: tabId,
-                   startRowIndex: rowIdx,
-                   endRowIndex: rowIdx + 1,
-                   startColumnIndex: colIdx,
-                   endColumnIndex: colIdx + 1
-                 },
-                 rows: [{
-                   values: [{
-                     userEnteredValue: { stringValue: newVal },
-                     note: newNote
-                   }]
-                 }],
-                 fields: "userEnteredValue,note"
-               }
-             }]
-           }),
-           muteHttpExceptions: true
-         });
-         console.log('PUT Response:', putRes.getContentText());
+        const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`;
+        const putRes = UrlFetchApp.fetch(batchUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          payload: JSON.stringify({
+            requests: [
+              {
+                updateCells: {
+                  range: {
+                    sheetId: tabId,
+                    startRowIndex: rowIdx,
+                    endRowIndex: rowIdx + 1,
+                    startColumnIndex: colIdx,
+                    endColumnIndex: colIdx + 1
+                  },
+                  rows: [
+                    {
+                      values: [
+                        {
+                          userEnteredValue: { stringValue: newVal },
+                          note: newNote
+                        }
+                      ]
+                    }
+                  ],
+                  fields: 'userEnteredValue,note'
+                }
+              }
+            ]
+          }),
+          muteHttpExceptions: true
+        });
+        console.log('PUT Response:', putRes.getContentText());
       }
     }
   } catch (err) {

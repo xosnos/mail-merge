@@ -17,8 +17,8 @@ Core source code for the Google Workspace Add-on. Contains the sidebar UI, email
 | `services/GmailService.js` | Gmail API helpers — fetches drafts, aliases, extracts `{{variables}}` from draft content                       |
 | `services/SendEngine.js`   | Core batch send engine — variable substitution, quota management, timeout/resumption, tracking pixel injection |
 | `utils/MimeBuilder.js`     | RFC 2822 MIME message builder — multipart support, inline images, attachments, base64 encoding                 |
-| `utils/Retry.js`         | Exponential backoff utility to gracefully handle Google API 429 errors (Quota/Rate Limits)                     |
-| `utils/ErrorLib.js`      | Dead-letter error logging for background processes (writes to hidden `_Logs` spreadsheet tab)                  |
+| `utils/Retry.js`           | Exponential backoff utility to gracefully handle Google API 429 errors (Quota/Rate Limits)                     |
+| `utils/ErrorLib.js`        | Dead-letter error logging for background processes (writes to hidden `_Logs` spreadsheet tab)                  |
 | `core/Analytics.js`        | Campaign analytics — bounce/reply detection via Gmail headers, metrics aggregation, background trigger setup   |
 | `appsscript.json`          | Apps Script manifest — OAuth scopes, advanced services, add-on metadata                                        |
 | `.clasp.json`              | CLASP deployment config (script ID)                                                                            |

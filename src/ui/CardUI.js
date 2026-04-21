@@ -209,13 +209,13 @@ function buildHomepageCard(e) {
       try {
         const progress = JSON.parse(cachedProgress);
         const progressSection = CardService.newCardSection().setHeader('🚀 Active Batch Progress');
-        
+
         progressSection.addWidget(
           CardService.newKeyValue()
             .setTopLabel('Status')
             .setContent(progress.status || 'Running')
         );
-        
+
         progressSection.addWidget(
           CardService.newKeyValue()
             .setTopLabel('Processed')
@@ -230,13 +230,13 @@ function buildHomepageCard(e) {
               .setIcon(CardService.Icon.ERROR)
           );
         }
-        
+
         const btnRefreshProgress = CardService.newTextButton()
           .setText('Refresh Progress')
           .setOnClickAction(CardService.newAction().setFunctionName('handleRefreshUI'));
-          
+
         progressSection.addWidget(CardService.newButtonSet().addButton(btnRefreshProgress));
-        
+
         builder.addSection(progressSection);
       } catch (err) {
         // Ignore invalid cache JSON

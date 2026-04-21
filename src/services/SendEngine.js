@@ -64,10 +64,10 @@ function sendTestEmail(config) {
     const subject = replaceVariables(msg.getSubject(), headers, testRow);
     const htmlBody = replaceVariables(msg.getBody(), headers, testRow);
     const plainBody = replaceVariables(msg.getPlainBody(), headers, testRow);
-    
+
     let cc = ccColIndex !== -1 && testRow[ccColIndex] ? String(testRow[ccColIndex]).trim() : '';
     if (!cc) cc = replaceVariables(msg.getCc(), headers, testRow);
-    
+
     let bcc = bccColIndex !== -1 && testRow[bccColIndex] ? String(testRow[bccColIndex]).trim() : '';
     if (!bcc) bcc = replaceVariables(msg.getBcc(), headers, testRow);
 
@@ -160,7 +160,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     // Determine which columns are email and merge status
     const emailColIndex = headers.indexOf(config.emailColumn);
     let statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
-    
+
     const ccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'cc');
     const bccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'bcc');
 
@@ -197,8 +197,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     }
 
     if (quota < totalToSend) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         message: `Insufficient Google email quota. You are trying to send ${totalToSend} emails, but your remaining daily quota is ${quota}.`
       };
     }
@@ -318,15 +318,17 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       const subject = replaceVariables(msg.getSubject(), headers, row);
       let htmlBody = replaceVariables(msg.getBody(), headers, row);
       const plainBody = replaceVariables(msg.getPlainBody(), headers, row);
-      
+
       let cc = ccColIndex !== -1 && row[ccColIndex] ? String(row[ccColIndex]).trim() : '';
       if (!cc) cc = replaceVariables(msg.getCc(), headers, row);
-      
+
       let bcc = bccColIndex !== -1 && row[bccColIndex] ? String(row[bccColIndex]).trim() : '';
       if (!bcc) bcc = replaceVariables(msg.getBcc(), headers, row);
 
       const trackingId = Utilities.getUuid();
-      callWithBackoff(() => sheet.getRange(i + 2, emailColIndex + 1).setNote('Tracking ID: ' + trackingId));
+      callWithBackoff(() =>
+        sheet.getRange(i + 2, emailColIndex + 1).setNote('Tracking ID: ' + trackingId)
+      );
 
       // Append tracking pixel if central tracking is configured
       if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.SECRET_KEY) {
@@ -392,7 +394,9 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
         if (campaignLabelId) {
           try {
-            callWithBackoff(() => Gmail.Users.Messages.modify({ addLabelIds: [campaignLabelId] }, 'me', sentMessage.id));
+            callWithBackoff(() =>
+              Gmail.Users.Messages.modify({ addLabelIds: [campaignLabelId] }, 'me', sentMessage.id)
+            );
           } catch (labelErr) {
             console.error('Failed to label message', labelErr);
           }
@@ -632,8 +636,15 @@ function scheduleBatchEmails(config) {
     ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(new Date(scheduleTime)).create();
 
     // Format the time in the user's local timezone for the confirmation toast
-    const displayTz = config.userTimezone || SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
-    const formattedDate = Utilities.formatDate(new Date(scheduleTime), displayTz, "EEEE, MMMM d, yyyy 'at' h:mm a z");
+    const displayTz =
+      config.userTimezone ||
+      SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() ||
+      Session.getScriptTimeZone();
+    const formattedDate = Utilities.formatDate(
+      new Date(scheduleTime),
+      displayTz,
+      "EEEE, MMMM d, yyyy 'at' h:mm a z"
+    );
     return { success: true, message: `Campaign successfully scheduled for ${formattedDate}` };
   } catch (err) {
     return { success: false, message: err.message };

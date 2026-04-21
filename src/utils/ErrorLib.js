@@ -9,7 +9,7 @@ var ErrorLib = {
    * @param {Error|string} error The error object or string message
    * @param {string} context Describe where the error occurred (e.g. 'resumeBatchSend')
    */
-  logError: function(error, context = 'Unknown Context') {
+  logError: function (error, context = 'Unknown Context') {
     try {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       if (!ss) return; // Cannot log if no active spreadsheet context
@@ -29,7 +29,7 @@ var ErrorLib = {
 
       logSheet.appendRow([timestamp, context, message, stack]);
     } catch (e) {
-      console.error("Failed to write to dead-letter log", e);
+      console.error('Failed to write to dead-letter log', e);
     }
   }
 };

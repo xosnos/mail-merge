@@ -1,7 +1,7 @@
 /**
  * Executes a function with exponential backoff.
  * Useful for handling Google API 429 Too Many Requests errors.
- * 
+ *
  * @param {Function} func The function to execute.
  * @param {number} [maxRetries=5] Maximum number of retries.
  * @param {number} [baseDelayMs=1000] Initial delay in milliseconds.
@@ -13,13 +13,13 @@ function callWithBackoff(func, maxRetries = 5, baseDelayMs = 1000) {
     try {
       return func();
     } catch (e) {
-      const isRetryable = e.message && (
-        e.message.indexOf("Too many concurrent requests") > -1 ||
-        e.message.indexOf("Service invoked too many times") > -1 ||
-        e.message.indexOf("Rate limit exceeded") > -1 ||
-        e.message.indexOf("Limit Exceeded") > -1 ||
-        e.message.indexOf("Quota exceeded") > -1
-      );
+      const isRetryable =
+        e.message &&
+        (e.message.indexOf('Too many concurrent requests') > -1 ||
+          e.message.indexOf('Service invoked too many times') > -1 ||
+          e.message.indexOf('Rate limit exceeded') > -1 ||
+          e.message.indexOf('Limit Exceeded') > -1 ||
+          e.message.indexOf('Quota exceeded') > -1);
 
       if (isRetryable && attempt < maxRetries) {
         attempt++;
