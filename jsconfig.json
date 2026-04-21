@@ -4,9 +4,5 @@
     "module": "commonjs",
     "lib": ["es2020"]
   },
-  "include": [
-    "src/**/*.js",
-    "central-tracker/**/*.js",
-    "node_modules/@types"
-  ]
+  "include": ["src/**/*.js", "central-tracker/**/*.js", "node_modules/@types"]
 }

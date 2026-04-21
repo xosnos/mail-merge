@@ -10,9 +10,15 @@
     "pull:tracker": "cd central-tracker && clasp pull",
     "deploy:addon": "cd src && clasp push && clasp deploy",
     "deploy:tracker": "cd central-tracker && clasp push && clasp deploy",
-    "deploy": "npm run deploy:tracker && npm run deploy:addon"
+    "deploy": "npm run deploy:tracker && npm run deploy:addon",
+    "test": "jest",
+    "lint": "eslint src/ central-tracker/"
   },
   "devDependencies": {
-    "@types/google-apps-script": "^1.0.83"
+    "@eslint/js": "^10.0.1",
+    "@types/google-apps-script": "^1.0.83",
+    "eslint": "^10.2.1",
+    "jest": "^30.3.0",
+    "prettier": "^3.8.3"
   }
 }

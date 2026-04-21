@@ -7,17 +7,21 @@ This guide covers the necessary steps to deploy the UNAVSA Mail Merge tool as an
 These steps must be performed by a Google Workspace Admin with access to Google Cloud.
 
 ### 1. Create a Standard GCP Project
+
 1. Navigate to the [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a new project (e.g., "UNAVSA Mail Merge").
 3. Ensure the project is associated with your `unavsa.org` organization.
 
 ### 2. Enable Required APIs
+
 In the GCP Console for your new project:
+
 1. Go to **APIs & Services > Library**.
 2. Search for and enable the **Gmail API**.
 3. Search for and enable the **Google Workspace Marketplace SDK**.
 
 ### 3. Configure OAuth Consent Screen
+
 1. Go to **APIs & Services > OAuth consent screen**.
 2. Select **Internal** user type (this restricts access to only users within `unavsa.org`) and click **Create**.
 3. Fill in the required app information (App name, support email, etc.).
@@ -32,6 +36,7 @@ In the GCP Console for your new project:
 5. Save and continue through the summary screen.
 
 ### 4. Link Apps Script to GCP Project
+
 1. Find your **Project Number** in the GCP Console (on the Project Info panel of the dashboard).
 2. Open the Apps Script Editor for your Mail Merge project.
 3. Click the gear icon (**Project Settings**) on the left.
@@ -43,12 +48,15 @@ In the GCP Console for your new project:
 ## Phase 3: Deployment & Publishing
 
 ### 1. Deploy the Central Tracker (For Open Tracking)
+
 The Central Tracker Web App needs to be deployed so the pixel tracking system has a URL to receive data. This is done ONCE for the whole organization.
+
 1. Follow the [Central Tracker Setup Guide](./CENTRAL_TRACKING_SETUP.md) to deploy the central tracker script and obtain its URL.
 2. Update the Add-on's Script Properties (`TRACKING_CENTRAL_URL` and `TRACKING_SECRET_KEY`) with the deployed Tracker details.
 3. Push the add-on code using `clasp push`.
 
 ### 2. Publish the Workspace Add-on
+
 1. **CRITICAL:** Open `src/core/Config.js` and ensure `IS_DEV_MODE` is set to `false`. If you forget this, all store users will see a `[DEV]` tag on their add-on. Push the add-on code using `clasp push` if you made changes.
 2. Go back to your Google Cloud Console.
 3. Navigate to **APIs & Services > Google Workspace Marketplace SDK**.
@@ -61,7 +69,9 @@ The Central Tracker Web App needs to be deployed so the pixel tracking system ha
 10. Click **Publish**.
 
 ### 3. Installation
+
 Once published privately, users within your organization can install it:
+
 1. Open a Google Sheet.
 2. Click **Extensions > Add-ons > Get add-ons**.
 3. Search for "UNAVSA Mail Merge" or navigate to the "Internal Apps" section of the marketplace.

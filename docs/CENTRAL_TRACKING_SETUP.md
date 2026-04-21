@@ -1,6 +1,6 @@
 # Centralized Open Tracking Setup Guide
 
-This guide details the steps to set up centralized open tracking for the UNAVSA Mail Merge tool using a Google Cloud Service Account with Domain-Wide Delegation. 
+This guide details the steps to set up centralized open tracking for the UNAVSA Mail Merge tool using a Google Cloud Service Account with Domain-Wide Delegation.
 
 This architecture allows the Mail Merge Add-on to automatically track "Opened" statuses for all users without requiring each user to deploy their own web app.
 
@@ -15,7 +15,7 @@ This architecture allows the Mail Merge Add-on to automatically track "Opened" s
 
 ## Phase 1: GCP Infrastructure Setup (Completed)
 
-*The following steps have already been completed via the `gcloud` CLI in the `unavsa-mail-merge` project:*
+_The following steps have already been completed via the `gcloud` CLI in the `unavsa-mail-merge` project:_
 
 1. Enabled required APIs: Google Sheets API (`sheets.googleapis.com`), Gmail API (`gmail.googleapis.com`), and Google Workspace Marketplace SDK (`appsmarket.googleapis.com`).
 2. Created a dedicated Service Account: `mail-merge-tracker@unavsa-mail-merge.iam.gserviceaccount.com`.
@@ -48,9 +48,9 @@ You need to deploy the code located in the `central-tracker/` directory as a sta
 4. Copy the entire contents of `central-tracker/appsscript.json` from this repository and paste it into the `appsscript.json` file in your browser, replacing what is there. This links the necessary OAuth2 library.
 5. Copy the entire contents of `central-tracker/core/Tracker.js` from this repository and paste it into `Code.gs` in your browser.
 6. Open **Project Settings** (gear icon) and scroll down to **Script Properties**. Click **Add script property** and add the following three properties:
-   * `SECRET_KEY`: A random string you define (e.g., `UNAVSA_TRACKER_SECRET_KEY_2024`).
-   * `SERVICE_ACCOUNT_PRIVATE_KEY`: The exact contents of your `private_key` from the JSON file. Ensure you include the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` markers, and replace any literal `\n` with actual newlines if necessary.
-   * `SERVICE_ACCOUNT_CLIENT_EMAIL`: The `client_email` from your JSON file (e.g., `mail-merge-tracker@unavsa-mail-merge.iam.gserviceaccount.com`).
+   - `SECRET_KEY`: A random string you define (e.g., `UNAVSA_TRACKER_SECRET_KEY_2024`).
+   - `SERVICE_ACCOUNT_PRIVATE_KEY`: The exact contents of your `private_key` from the JSON file. Ensure you include the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` markers, and replace any literal `\n` with actual newlines if necessary.
+   - `SERVICE_ACCOUNT_CLIENT_EMAIL`: The `client_email` from your JSON file (e.g., `mail-merge-tracker@unavsa-mail-merge.iam.gserviceaccount.com`).
 7. Click **Deploy > New deployment**.
 8. Click the gear icon next to "Select type" and choose **Web app**.
 9. Set **Execute as** to **User deploying the web app (Me)**.
@@ -67,8 +67,8 @@ Finally, you need to link the Mail Merge Add-on to your newly deployed Central T
 1. Open the Apps Script Editor for the Mail Merge Add-on (`src/`).
 2. Go to **Project Settings** (gear icon) and scroll down to **Script Properties**.
 3. Click **Add script property** and add the following two properties:
-   * `TRACKING_CENTRAL_URL`: The Web App URL you copied in Phase 3.
-   * `TRACKING_SECRET_KEY`: The exact string you used for the `SECRET_KEY` Script Property in Phase 3.
+   - `TRACKING_CENTRAL_URL`: The Web App URL you copied in Phase 3.
+   - `TRACKING_SECRET_KEY`: The exact string you used for the `SECRET_KEY` Script Property in Phase 3.
 4. Click **Save script properties**.
 
 Once configured, the Add-on will automatically handle open tracking for all users seamlessly!
@@ -78,10 +78,13 @@ Once configured, the Add-on will automatically handle open tracking for all user
 ## Known Limitations & Workarounds
 
 ### 1. Premature "Opened" Status for Bounced Emails
+
 Because tracking pixels fire instantaneously when an email is viewed, there is a known race condition if an email is sent to an invalid address:
-* If the sender (or a valid CC'd recipient) views the email in their "Sent" folder *before* the mailer-daemon bounce report is processed, the pixel will trigger.
-* **Mitigation:** The system now includes a timestamp (`ts`) in the pixel URL and implements a 10-second delay threshold. If the pixel is loaded within 10 seconds of sending (e.g., by automated pre-fetchers or immediate viewing in the "Sent" folder), the "Opened" status update is ignored.
-* Once the inbox scanner processes the bounce report, it correctly updates the status to **"Bounced"** and will not be overwritten by subsequent "Replied" checks.
+
+- If the sender (or a valid CC'd recipient) views the email in their "Sent" folder _before_ the mailer-daemon bounce report is processed, the pixel will trigger.
+- **Mitigation:** The system now includes a timestamp (`ts`) in the pixel URL and implements a 10-second delay threshold. If the pixel is loaded within 10 seconds of sending (e.g., by automated pre-fetchers or immediate viewing in the "Sent" folder), the "Opened" status update is ignored.
+- Once the inbox scanner processes the bounce report, it correctly updates the status to **"Bounced"** and will not be overwritten by subsequent "Replied" checks.
 
 ### 2. Bounce vs. Reply Resolution
+
 When a message bounces, the `mailer-daemon` returns a Non-Delivery Report. Previously, the Inbox Scanner would erroneously interpret this NDR as a "Reply". This has been fixed: the scanner now explicitly ignores incoming emails containing `mailer-daemon` or `postmaster`, and once a row is marked as `Bounced`, it is locked and will never be overwritten by a `Replied` status.

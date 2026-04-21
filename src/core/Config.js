@@ -24,11 +24,18 @@ const CONFIG = {
     ANALYTICS_TRIGGER_ID: 'YAMM_CLONE_ANALYTICS_TRIGGER_ID',
     ANALYTICS_SPREADSHEET_ID: 'YAMM_CLONE_ANALYTICS_SPREADSHEET_ID',
     ANALYTICS_SHEET_NAME: 'YAMM_CLONE_ANALYTICS_SHEET_NAME',
-    PROGRESS_CACHE: 'YAMM_CLONE_PROGRESS'
+    PROGRESS_CACHE: 'YAMM_CLONE_PROGRESS',
+    LAST_BOUNCE_THREAD_TIME: 'YAMM_CLONE_LAST_BOUNCE_THREAD_TIME',
+    LAST_REPLY_THREAD_TIME: 'YAMM_CLONE_LAST_REPLY_THREAD_TIME',
+    USER_TIMEZONE: 'YAMM_CLONE_USER_TIMEZONE'
   },
   TRACKING: {
-    get CENTRAL_URL() { return PropertiesService.getScriptProperties().getProperty('TRACKING_CENTRAL_URL') || ''; },
-    get SECRET_KEY() { return PropertiesService.getScriptProperties().getProperty('TRACKING_SECRET_KEY') || ''; }
+    get CENTRAL_URL() {
+      return PropertiesService.getScriptProperties().getProperty('TRACKING_CENTRAL_URL') || '';
+    },
+    get SECRET_KEY() {
+      return PropertiesService.getScriptProperties().getProperty('TRACKING_SECRET_KEY') || '';
+    }
   }
 };
 
@@ -56,7 +63,7 @@ function getProperty(key) {
  */
 function clearProperties() {
   const props = PropertiesService.getDocumentProperties();
-  Object.values(CONFIG.KEYS).forEach(key => {
+  Object.values(CONFIG.KEYS).forEach((key) => {
     props.deleteProperty(key);
   });
 }

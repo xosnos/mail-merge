@@ -34,7 +34,7 @@ function buildMimeMessage(opts) {
   const inlineAttachments = [];
   const regularAttachments = [];
 
-  allAttachments.forEach(att => {
+  allAttachments.forEach((att) => {
     if (inlineContentIds[att.getName()]) {
       inlineAttachments.push(att);
     } else {
@@ -55,7 +55,9 @@ function buildMimeMessage(opts) {
   }
 
   headers.push('To: ' + opts.to);
-  headers.push('Subject: =?UTF-8?B?' + Utilities.base64Encode(opts.subject, Utilities.Charset.UTF_8) + '?=');
+  headers.push(
+    'Subject: =?UTF-8?B?' + Utilities.base64Encode(opts.subject, Utilities.Charset.UTF_8) + '?='
+  );
 
   if (opts.replyTo) {
     headers.push('Reply-To: ' + opts.replyTo);
@@ -72,7 +74,7 @@ function buildMimeMessage(opts) {
   headers.push('MIME-Version: 1.0');
 
   if (opts.customHeaders) {
-    Object.keys(opts.customHeaders).forEach(key => {
+    Object.keys(opts.customHeaders).forEach((key) => {
       headers.push(key + ': ' + opts.customHeaders[key]);
     });
   }
@@ -101,7 +103,7 @@ function buildMimeMessage(opts) {
     parts.push('');
     parts.push(altPart);
     parts.push('');
-    inlineAttachments.forEach(att => {
+    inlineAttachments.forEach((att) => {
       parts.push('--' + relBoundary);
       parts.push(buildAttachmentHeaders_(att, true, inlineContentIds[att.getName()]));
       parts.push('');
@@ -111,7 +113,7 @@ function buildMimeMessage(opts) {
     parts.push('');
 
     // Regular attachments
-    regularAttachments.forEach(att => {
+    regularAttachments.forEach((att) => {
       parts.push('--' + mixBoundary);
       parts.push(buildAttachmentHeaders_(att, false, null));
       parts.push('');
@@ -119,7 +121,6 @@ function buildMimeMessage(opts) {
     });
     parts.push('--' + mixBoundary + '--');
     body = parts.join('\r\n');
-
   } else if (hasInline) {
     // Structure: multipart/related
     //   ├─ multipart/alternative (text + html)
@@ -132,7 +133,7 @@ function buildMimeMessage(opts) {
     parts.push('');
     parts.push(altPart);
     parts.push('');
-    inlineAttachments.forEach(att => {
+    inlineAttachments.forEach((att) => {
       parts.push('--' + relBoundary);
       parts.push(buildAttachmentHeaders_(att, true, inlineContentIds[att.getName()]));
       parts.push('');
@@ -140,7 +141,6 @@ function buildMimeMessage(opts) {
     });
     parts.push('--' + relBoundary + '--');
     body = parts.join('\r\n');
-
   } else if (hasRegular) {
     // Structure: multipart/mixed
     //   ├─ multipart/alternative (text + html)
@@ -153,7 +153,7 @@ function buildMimeMessage(opts) {
     parts.push('');
     parts.push(altPart);
     parts.push('');
-    regularAttachments.forEach(att => {
+    regularAttachments.forEach((att) => {
       parts.push('--' + mixBoundary);
       parts.push(buildAttachmentHeaders_(att, false, null));
       parts.push('');
@@ -161,7 +161,6 @@ function buildMimeMessage(opts) {
     });
     parts.push('--' + mixBoundary + '--');
     body = parts.join('\r\n');
-
   } else {
     // No attachments: just multipart/alternative
     headers.push('Content-Type: multipart/alternative; boundary="' + altBoundary + '"');
@@ -248,7 +247,7 @@ function getInlineContentIds_(messageId) {
       if (!parts) return;
       for (const part of parts) {
         if (part.headers && part.filename) {
-          const cidHeader = part.headers.find(h => h.name.toLowerCase() === 'content-id');
+          const cidHeader = part.headers.find((h) => h.name.toLowerCase() === 'content-id');
           if (cidHeader) {
             inlineMap[part.filename] = cidHeader.value.replace(/[<>]/g, '');
           }
@@ -265,4 +264,10 @@ function getInlineContentIds_(messageId) {
     console.log('Error extracting inline content IDs: ' + e.message);
     return {};
   }
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    buildMimeMessage
+  };
 }
