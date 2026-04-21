@@ -400,7 +400,13 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
         const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
         const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
-        callWithBackoff(() => sheet.getRange(i + 2, statusColIndex + 1).setValue(`Sent ${timeString}`));
+        callWithBackoff(() => {
+          const range = sheet.getRange(i + 2, statusColIndex + 1);
+          range.setValue('Email sent');
+          const existingNote = range.getNote() || '';
+          const newNote = `Sent: ${timeString}`;
+          range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
+        });
         sentCount++;
         // Update Cache periodically
         cache.put(
@@ -409,7 +415,13 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
           600
         );
       } catch (e) {
-        callWithBackoff(() => sheet.getRange(i + 2, statusColIndex + 1).setValue('Error: ' + e.message));
+        callWithBackoff(() => {
+          const range = sheet.getRange(i + 2, statusColIndex + 1);
+          range.setValue('Error');
+          const existingNote = range.getNote() || '';
+          const newNote = `Error: ${e.message}`;
+          range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
+        });
       }
     }
 

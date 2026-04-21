@@ -154,12 +154,63 @@ function initializeSheet() {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sheet.getRange(2, 1, 1, row2.length).setValues([row2]);
     sheet.autoResizeColumns(1, headers.length);
+    applyConditionalFormatting_(sheet, headers.length);
   } else if (lastCol > 0) {
     // Ensure "Merge status" column exists
     const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    const hasStatus = headers.some((h) => String(h).toLowerCase() === 'merge status');
+    const statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
 
     let nextCol = lastCol + 1;
-    if (!hasStatus) sheet.getRange(1, nextCol).setValue('Merge status').setFontWeight('bold');
+    if (statusColIndex === -1) {
+      sheet.getRange(1, nextCol).setValue('Merge status').setFontWeight('bold');
+      applyConditionalFormatting_(sheet, nextCol);
+    } else {
+      applyConditionalFormatting_(sheet, statusColIndex + 1);
+    }
+  }
+}
+
+/**
+ * Applies YAMM-style conditional formatting rules to the Merge status column.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} colIndex 1-based index of the Merge status column
+ */
+function applyConditionalFormatting_(sheet, colIndex) {
+  const numRows = sheet.getMaxRows();
+  if (numRows < 2) return;
+  const range = sheet.getRange(2, colIndex, numRows - 1, 1);
+  let rules = sheet.getConditionalFormatRules();
+
+  // Create rule helper
+  const createRule = (text, bgColor, fontColor) => {
+    return SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(text)
+      .setBackground(bgColor)
+      .setFontColor(fontColor)
+      .setRanges([range])
+      .build();
+  };
+
+  // Check if we already have our rules to avoid stacking (check for 'Email opened' on this column)
+  const hasRules = rules.some(rule => {
+    const condition = rule.getBooleanCondition();
+    if (!condition) return false;
+    const ruleRanges = rule.getRanges();
+    return condition.getCriteriaType() === SpreadsheetApp.BooleanCriteria.TEXT_EQUAL_TO &&
+           condition.getCriteriaValues()[0] === 'Email opened' &&
+           ruleRanges.some(r => r.getColumn() === colIndex);
+  });
+
+  if (!hasRules) {
+    const newRules = [
+      createRule('Email opened', '#d9ead3', '#274e13'), // Light green
+      createRule('Email sent', '#d0e0e3', '#134f5c'), // Light blue
+      createRule('Replied', '#d9d2e9', '#351c75'), // Light purple
+      createRule('Bounced', '#f4cccc', '#990000'), // Light red
+      createRule('Error', '#fce5cd', '#b45f06'), // Light orange
+      createRule('Invalid Email', '#fce5cd', '#b45f06')
+    ];
+    rules.push(...newRules);
+    sheet.setConditionalFormatRules(rules);
   }
 }

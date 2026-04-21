@@ -210,7 +210,11 @@ function checkBounces(startTime = Date.now()) {
       }
 
       if (isBounced) {
-        sheet.getRange(rowNum, statusColIndex + 1).setValue(`Bounced ${timeString}`);
+        const range = sheet.getRange(rowNum, statusColIndex + 1);
+        range.setValue('Bounced');
+        const existingNote = range.getNote() || '';
+        const newNote = `Bounced: ${timeString}`;
+        range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
         bounceCount++;
       }
     }
@@ -429,17 +433,17 @@ function checkReplies(startTime = Date.now()) {
         const rowInfo = emailToRow[fromAddress];
 
         if (foundRowByTid !== -1 && !processedRows[foundRowByTid]) {
-          const existingStatus = String(
-            sheet.getRange(foundRowByTid, statusColIndex + 1).getValue()
-          )
-            .trim()
-            .toLowerCase();
+          const range = sheet.getRange(foundRowByTid, statusColIndex + 1);
+          const existingStatus = String(range.getValue()).trim().toLowerCase();
           if (
             (existingStatus.includes('sent') || existingStatus.includes('opened')) &&
             !existingStatus.includes('replied') &&
             !existingStatus.includes('bounced')
           ) {
-            sheet.getRange(foundRowByTid, statusColIndex + 1).setValue(`Replied ${timeString}`);
+            range.setValue('Replied');
+            const existingNote = range.getNote() || '';
+            const newNote = `Replied: ${timeString}`;
+            range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
             processedRows[foundRowByTid] = true;
             replyCount++;
           }
@@ -451,21 +455,27 @@ function checkReplies(startTime = Date.now()) {
             !currentStatus.includes('replied') &&
             !currentStatus.includes('bounced')
           ) {
-            sheet.getRange(rowInfo.rowNum, statusColIndex + 1).setValue(`Replied ${timeString}`);
+            const range = sheet.getRange(rowInfo.rowNum, statusColIndex + 1);
+            range.setValue('Replied');
+            const existingNote = range.getNote() || '';
+            const newNote = `Replied: ${timeString}`;
+            range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
             processedRows[rowInfo.rowNum] = true;
             replyCount++;
           }
         } else if (matchedRowId && !processedRows[matchedRowId]) {
           // Fallback: use X-Row-ID to identify the row directly
-          const existingStatus = String(sheet.getRange(matchedRowId, statusColIndex + 1).getValue())
-            .trim()
-            .toLowerCase();
+          const range = sheet.getRange(matchedRowId, statusColIndex + 1);
+          const existingStatus = String(range.getValue()).trim().toLowerCase();
           if (
             (existingStatus.includes('sent') || existingStatus.includes('opened')) &&
             !existingStatus.includes('replied') &&
             !existingStatus.includes('bounced')
           ) {
-            sheet.getRange(matchedRowId, statusColIndex + 1).setValue(`Replied ${timeString}`);
+            range.setValue('Replied');
+            const existingNote = range.getNote() || '';
+            const newNote = `Replied: ${timeString}`;
+            range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
             processedRows[matchedRowId] = true;
             replyCount++;
           }
@@ -544,7 +554,7 @@ function setupAnalyticsTrigger() {
       }
     }
 
-    return { success: true, message: 'Background scanning enabled (every 15 minutes).' };
+    return { success: true, message: 'Background scanning enabled (every 3 hours).' };
   } catch (err) {
     return { success: false, message: err.message };
   }
