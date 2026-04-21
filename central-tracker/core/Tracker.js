@@ -210,7 +210,7 @@ function doGet(e) {
     if (lower.includes('sent') || lower.includes('opened')) {
       // Use script timezone
       const timeZone = Session.getScriptTimeZone();
-      const timeString = Utilities.formatDate(new Date(), timeZone, 'MM/dd HH:mm');
+      const timeString = Utilities.formatDate(new Date(), timeZone, 'MM/dd HH:mm z');
       const newVal = 'Email opened';
       const newNote = existingNote ? existingNote + '\nOpened: ' + timeString : 'Opened: ' + timeString;
 

@@ -180,7 +180,7 @@ function checkBounces(startTime = Date.now()) {
     const data = dataRange.getValues();
     let bounceCount = 0;
     const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
-    const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
+    const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm z');
 
     for (let i = 0; i < data.length; i++) {
       const email = String(data[i][emailColIndex]).trim().toLowerCase();
@@ -358,7 +358,7 @@ function checkReplies(startTime = Date.now()) {
 
     let replyCount = 0;
     const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
-    const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
+    const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm z');
     const processedRows = {};
     let maxProcessedTime = lastReplyTime;
 

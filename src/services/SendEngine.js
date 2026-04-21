@@ -399,7 +399,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         }
 
         const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
-        const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm');
+        const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm z');
         callWithBackoff(() => {
           const range = sheet.getRange(i + 2, statusColIndex + 1);
           range.setValue('Email sent');
@@ -623,10 +623,17 @@ function scheduleBatchEmails(config) {
       });
     }
 
+    // Persist user timezone so it can be referenced later if needed
+    if (config.userTimezone) {
+      setProperty(CONFIG.KEYS.USER_TIMEZONE, config.userTimezone);
+    }
+
     // Create the trigger
     ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(new Date(scheduleTime)).create();
 
-    const formattedDate = new Date(scheduleTime).toLocaleString();
+    // Format the time in the user's local timezone for the confirmation toast
+    const displayTz = config.userTimezone || SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
+    const formattedDate = Utilities.formatDate(new Date(scheduleTime), displayTz, "EEEE, MMMM d, yyyy 'at' h:mm a z");
     return { success: true, message: `Campaign successfully scheduled for ${formattedDate}` };
   } catch (err) {
     return { success: false, message: err.message };

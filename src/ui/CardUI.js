@@ -376,6 +376,10 @@ function extractConfigFromEvent(e) {
     emailColumn: getFormValue('emailColumn'),
     replyTo: getFormValue('replyTo'),
     scheduleDate: getFormValue('scheduleDate'),
+    userTimezone:
+      e && e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
+        ? e.commonEventObject.timeZone.id
+        : '',
     spreadsheetId: SpreadsheetApp.getActiveSpreadsheet()
       ? SpreadsheetApp.getActiveSpreadsheet().getId()
       : null,
