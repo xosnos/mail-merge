@@ -21,21 +21,23 @@ sequenceDiagram
     User->>AddOn: Configure & Send Batch
     AddOn->>Gmail API: Fetch Draft Template
     Gmail API-->>AddOn: Draft Content
-    loop Each Row
-        AddOn->>AddOn: Map Sheet Data & Build MIME
-        AddOn->>AddOn: Inject Tracking Pixel (HMAC signed)
-        AddOn->>Gmail API: Send Email (Advanced API)
-        AddOn->>User: Update Sheet "Sent <timestamp>"
+    loop Burst of rows
+        AddOn->>AddOn: Build MIME + inject HMAC pixel
+        AddOn->>Gmail API: Send burst via fetchAll
+        Gmail API-->>AddOn: Message IDs
+        AddOn->>Gmail API: Apply campaign label via messages.modify
+        AddOn->>AddOn: Buffer Sent/Error + note updates
+        AddOn->>Sheets API: Flush buffered status window
     end
     Gmail API-->>Recipient: Deliver Emails
 
     Note over Recipient,Tracker: Recipient opens email
-    Recipient->>Tracker: GET 1x1 Pixel (with params & sig)
-    Tracker->>Tracker: Validate HMAC Signature
+    Recipient->>Tracker: GET pixel (sheetId, cell, user, ts, tid, sig)
+    Tracker->>Tracker: Validate HMAC + ignore premature opens
     Tracker->>Tracker: Request OAuth2 Token (Domain-Wide Delegation)
-    Tracker->>Sheets API: Update specific cell to "Opened"
+    Tracker->>Sheets API: Locate row by Tracking ID or fallback cell
     Sheets API-->>Tracker: Success
-    Tracker-->>Recipient: 200 OK (1x1 Transparent GIF)
+    Tracker-->>Recipient: 200 OK
 ```
 
 ---
@@ -62,19 +64,24 @@ Because Google Apps Script executions are stateless and have strict time limits,
 
 ### 1.3 MIME Engine & Sending (`src/utils/MimeBuilder.js` & `src/services/SendEngine.js`)
 
-The system uses the Advanced Gmail API (`Gmail.Users.Messages.send`) rather than `MailApp` or `GmailApp.sendEmail()`. This is crucial for tracking.
+The system uses raw MIME construction plus the Gmail API rather than `MailApp` or `GmailApp.sendEmail()`. This is crucial for tracking, throughput, and custom label application.
 
 - **RFC 2822 Construction**: `src/utils/MimeBuilder.js` manually constructs raw, multipart MIME messages encoded in URL-safe Base64. This allows for inline images, attachments, and most importantly, custom headers.
-- **Custom Headers**: During construction, the system injects `X-Campaign-ID` and `X-Row-ID` into the email headers. These are invisible to the recipient but essential for tracking replies and bounces.
+- **Custom Headers**: During construction, the system injects `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` into the email headers. These are invisible to the recipient but essential for tracking replies, bounces, and tracker row resolution.
 - **Tracking Pixel Injection**: The HTML body is parsed, and an `<img>` tag pointing to the Central Tracker Web App is injected before the closing `</body>` tag.
-- **Timeout Chunking**: The Add-on UI imposes a strict 30-45 second execution limit, so `startBackgroundBatchEmails` creates an immediate background trigger (`timeBased().after(1)`) to offload the work. Once running in the background, GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger (`ScriptApp.newTrigger()`) to resume the batch 1 minute later.
-- **Resilient Execution**: `src/utils/Retry.js` wraps external API calls (e.g. `Gmail.Users.Messages.send`) with exponential backoff (`callWithBackoff`) to handle quota/rate limits (HTTP 429 exceptions) gracefully.
+- **Burst Sending**: Instead of sending one message at a time, the engine prepares bursts of rows, then calls the Gmail REST send endpoint in parallel with `UrlFetchApp.fetchAll`. This reduces per-message network overhead substantially.
+- **Buffered Sheet Writes**: Merge statuses, status notes, and Tracking ID notes are updated in memory and flushed back to the sheet as a contiguous row window instead of performing per-row `setValue()` and `setNote()` calls.
+- **Campaign Labels**: After each successful send, the engine applies the campaign label with `users.messages.modify`. The send payload itself is not relied on for custom label propagation.
+- **Race-Safe Status Merging**: Before flushing buffered send results, the engine re-reads the dirty status window and preserves `Opened`, `Replied`, or `Bounced` rows that may already have been written by the tracker or analytics scanner.
+- **Timeout Chunking**: The Add-on UI imposes a strict 30-45 second execution limit, so `startBackgroundBatchEmails` creates an immediate background trigger (`timeBased().after(1)`) to offload the work. Once running in the background, GAS scripts timeout after 6 minutes. `src/services/SendEngine.js` monitors execution time. If it approaches 4.5 minutes, it saves the `lastProcessedRow` to `PropertiesService` and schedules a time-driven trigger to resume the batch about 1 minute later.
+- **Scoped Trigger Cleanup**: Managed time-based triggers are mapped to the originating spreadsheet. Cleanup and handler deletion now operate against that mapping so one spreadsheet cannot accumulate stale resume/background/analytics triggers from prior runs.
+- **Resilient Execution**: `src/utils/Retry.js` wraps external API calls with exponential backoff (`callWithBackoff`) to handle quota/rate limits (HTTP 429 exceptions) gracefully.
 
 ### 1.4 Background Analytics (`src/core/Analytics.js`)
 
 While opens are tracked instantly via the Central Tracker, replies and bounces are processed asynchronously by the sender's account.
 
-- **Inbox Scanner**: A time-driven trigger runs every 3 hours to scan the user's Gmail inbox.
+- **Inbox Scanner**: A time-driven trigger runs every 3 hours to scan the user's Gmail inbox. The trigger is stored and cleaned up per spreadsheet context instead of being treated as a generic project-level singleton.
 - **Bounces**: Searches for `from:mailer-daemon` and parses the Non-Delivery Report (NDR) for the original `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` custom headers, falling back to regex email matching.
 - **Replies**: Searches for recent inbox messages (`in:inbox newer_than:7d -from:me`) and checks for the `X-Campaign-ID`, `X-Row-ID`, or `X-Tracking-ID` headers to match replies from recipients in the sheet.
 - **Status Updates**: The script updates the "Merge Status" column in the original Google Sheet.
@@ -91,7 +98,7 @@ Provides reusable helper functions for interacting with the user's Gmail account
 
 Handles entry-point functionalities, template validation, and trigger lifecycle management.
 
-- **Trigger Management**: Provides cleanup functions (`cleanupOrphanedTriggers`, `deleteTriggerByHandler`) to manage and delete background time-driven triggers, preventing quota limits.
+- **Trigger Management**: Provides cleanup functions (`cleanupOrphanedTriggers`, `deleteTriggerByHandler`) to manage and delete background time-driven triggers, scoped by spreadsheet through trigger-to-spreadsheet mappings so quota limits are not exhausted by orphaned triggers.
 - **Validation**: Validates the selected draft's variables against the active sheet's headers to prevent sending emails with unresolved placeholders (`validateTemplate`).
 - **Initialization**: Bootstraps the active sheet with required headers or populates an empty template for new users (`initializeSheet`).
 
@@ -126,5 +133,6 @@ Because the Web App runs as the Developer (not the Sender), it cannot natively e
 
 - **Service Account**: The Tracker uses a Google Cloud Platform (GCP) Service Account with Domain-Wide Delegation enabled.
 - **OAuth2**: Using the `OAuth2` Apps Script library, the Tracker requests an access token, impersonating the `user` (Sender) passed in the URL parameters.
-- **Sheets API v4**: With the impersonated token, the Tracker makes a REST call to the Google Sheets API (`UrlFetchApp.fetch`) to search for the cell containing the `tid` in its note. It then updates that specific cell to "Opened <timestamp>". If the search fails, it falls back to the `cell` parameter.
-- **Response**: Regardless of success or failure, the endpoint returns a `ContentService.MimeType.GIF` representing a 1x1 transparent pixel so the recipient's email client renders it without error.
+- **Sheets API v4**: With the impersonated token, the Tracker makes a REST call to the Google Sheets API (`UrlFetchApp.fetch`) to search for the cell containing the `tid` in its note. It then updates that specific cell to `Email opened`, appending an `Opened: <timestamp>` note. If the search fails, it falls back to the `cell` parameter.
+- **Blank-Status Tolerance**: The tracker accepts blank status cells in addition to `Sent` and `Opened`, which protects open tracking when the sender is still buffering the `Email sent` write during a burst.
+- **Response**: Regardless of success or failure, the endpoint returns a simple `OK` text response. The tracking behavior depends on the request side-effect, not on returning binary image content.

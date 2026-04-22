@@ -44,6 +44,8 @@ In the GCP Console for your new project:
    - `https://www.googleapis.com/auth/script.container.ui`
    - `https://www.googleapis.com/auth/userinfo.email`
    - `https://www.googleapis.com/auth/script.scriptapp`
+   - `https://www.googleapis.com/auth/drive`
+   - `https://www.googleapis.com/auth/script.external_request`
 5. Save and continue through the summary screen.
 
 ### 4. Link Apps Script to GCP Project
@@ -66,6 +68,14 @@ The Central Tracker Web App needs to be deployed so the pixel tracking system ha
 2. Update the Add-on's Script Properties (`TRACKING_CENTRAL_URL` and `TRACKING_SECRET_KEY`) with the deployed Tracker details.
 3. Push the add-on code using `clasp push`.
 
+### 1.5 Manifest URL Fetch Allowlist
+
+The add-on now sends mail and applies campaign labels through direct Gmail REST calls as well as Drive media fetches. Keep the `urlFetchWhitelist` in `src/appsscript.json` aligned with the current runtime behavior before deployment:
+
+- `https://www.googleapis.com/drive/v3/files/`
+- `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`
+- `https://gmail.googleapis.com/gmail/v1/users/me/messages/`
+
 ### 2. Publish the Workspace Add-on
 
 1. **CRITICAL:** Open `src/core/Config.js` and ensure `IS_DEV_MODE` is set to `false`. If you forget this, all store users will see a `[DEV]` tag on their add-on. Push the add-on code using `clasp push` if you made changes.
@@ -87,3 +97,23 @@ Once published privately, users within your organization can install it:
 2. Click **Extensions > Add-ons > Get add-ons**.
 3. Search for "UNAVSA Mail Merge" or navigate to the "Internal Apps" section of the marketplace.
 4. Install the Add-on. It will appear on the right-side panel when opening Google Sheets.
+
+## Troubleshooting
+
+### `Error 401: deleted_client`
+
+If authorization suddenly fails with `deleted_client`, the OAuth client attached to the Apps Script project's linked Google Cloud project was deleted.
+
+1. Open Google Cloud Console and go to **Google Auth Platform > Clients > Deleted credentials**.
+2. Restore the deleted client if it is still within the recovery window.
+3. If it cannot be restored, open the Apps Script project, go to **Project Settings**, temporarily switch the linked GCP project, then link the intended project again to recreate the Apps Script-managed OAuth client.
+4. Re-run authorization after the client is restored or recreated.
+
+### Tracker code updated but open tracking still uses old behavior
+
+If `TRACKING_CENTRAL_URL` points to a versioned Apps Script web app deployment, a plain `clasp push` is not enough.
+
+1. Redeploy the `central-tracker` web app.
+2. Copy the new deployment URL if it changed.
+3. Update `TRACKING_CENTRAL_URL` in the add-on's script properties.
+4. Re-send a fresh email for validation.
