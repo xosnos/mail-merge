@@ -7,6 +7,142 @@
 const MAX_EXECUTION_MS = 270000;
 
 /**
+ * Extracts Google Drive file IDs from plain text or rich text hyperlinks.
+ * @param {string} cellValue The raw cell value
+ * @param {GoogleAppsScript.Spreadsheet.RichTextValue} [richTextValue] Optional rich text value to extract hyperlinks
+ * @returns {Array<string>} Array of file IDs
+ */
+function extractDriveFileIds_(cellValue, richTextValue) {
+  const ids = new Set();
+
+  const extractId = (str) => {
+    if (!str) return null;
+    const match = str.match(/(?:id=|d\/|open\?id=)([-\w]{25,})/i);
+    if (match) return match[1];
+    const exactMatch = str.match(/^[-\w]{25,}$/);
+    if (exactMatch) return exactMatch[0];
+    const looseMatch = str.match(/[-\w]{25,}/);
+    if (looseMatch && (str.includes('drive.google.com') || str.includes('docs.google.com'))) {
+      return looseMatch[0];
+    }
+    return null;
+  };
+
+  if (richTextValue) {
+    const runs = richTextValue.getRuns();
+    runs.forEach((run) => {
+      const url = run.getLinkUrl();
+      if (url) {
+        const id = extractId(url);
+        if (id) ids.add(id);
+      }
+    });
+  }
+
+  if (cellValue) {
+    const parts = String(cellValue).split(',');
+    parts.forEach((part) => {
+      const id = extractId(part.trim());
+      if (id) ids.add(id);
+    });
+  }
+
+  return Array.from(ids);
+}
+
+/**
+ * Parallel pre-fetches Google Drive files as Blobs given an array of unique IDs.
+ * Utilizes UrlFetchApp.fetchAll for massive performance improvements.
+ * @param {Array<string>} fileIds Array of unique Drive file IDs
+ * @returns {Object} Map of fileId -> GoogleAppsScript.Base.Blob
+ */
+function prefetchDriveAttachments_(fileIds) {
+  const prefetchMap = {};
+  if (!fileIds || fileIds.length === 0) return prefetchMap;
+
+  const token = ScriptApp.getOAuthToken();
+
+  // 1. Fetch Metadata in parallel
+  const metaRequests = fileIds.map((id) => ({
+    url: `https://www.googleapis.com/drive/v3/files/${id}?fields=name,mimeType`,
+    method: 'get',
+    headers: { Authorization: `Bearer ${token}` },
+    muteHttpExceptions: true
+  }));
+
+  const metaResponses = callWithBackoff(() => UrlFetchApp.fetchAll(metaRequests));
+
+  const validIds = [];
+  const metaDataMap = {};
+
+  metaResponses.forEach((res, index) => {
+    const id = fileIds[index];
+    if (res.getResponseCode() === 200) {
+      const metadata = JSON.parse(res.getContentText());
+      const mimeType = metadata.mimeType;
+
+      if (
+        mimeType === 'application/vnd.google-apps.folder' ||
+        mimeType === 'application/vnd.google-apps.shortcut' ||
+        mimeType.startsWith('application/vnd.google-apps.')
+      ) {
+        console.warn(`File ${id} is unsupported or a Google Doc (${mimeType})`);
+      } else {
+        validIds.push(id);
+        metaDataMap[id] = metadata;
+      }
+    } else {
+      console.warn(`Failed metadata fetch for ${id}: ${res.getContentText()}`);
+    }
+  });
+
+  if (validIds.length === 0) return prefetchMap;
+
+  // 2. Fetch Media in parallel
+  const mediaRequests = validIds.map((id) => ({
+    url: `https://www.googleapis.com/drive/v3/files/${id}?alt=media`,
+    method: 'get',
+    headers: { Authorization: `Bearer ${token}` },
+    muteHttpExceptions: true
+  }));
+
+  // Chunking to avoid URLFetchApp limits (safe max is generally ~30-50 concurrent requests depending on size)
+  const CHUNK_SIZE = 30;
+  for (let i = 0; i < validIds.length; i += CHUNK_SIZE) {
+    const chunkIds = validIds.slice(i, i + CHUNK_SIZE);
+    const chunkRequests = mediaRequests.slice(i, i + CHUNK_SIZE);
+
+    const mediaResponses = callWithBackoff(() => UrlFetchApp.fetchAll(chunkRequests));
+
+    mediaResponses.forEach((res, index) => {
+      const id = chunkIds[index];
+      if (res.getResponseCode() === 200) {
+        const blob = res.getBlob();
+        const meta = metaDataMap[id];
+        blob.setName(meta.name);
+        blob.setContentType(meta.mimeType);
+        prefetchMap[id] = blob;
+      } else {
+        console.warn(`Failed media fetch for ${id}: ${res.getContentText()}`);
+      }
+    });
+  }
+
+  return prefetchMap;
+}
+
+/**
+ * Fetches Google Drive files as Blobs given their IDs.
+ * Utilizes prefetchDriveAttachments_ for backwards compatibility in synchronous contexts.
+ * @param {Array<string>} ids Array of Drive file IDs
+ * @returns {Array<GoogleAppsScript.Base.Blob>} Array of Blobs
+ */
+function getBlobsFromFileIds_(ids) {
+  const prefetched = prefetchDriveAttachments_(ids);
+  return ids.map((id) => prefetched[id]).filter((blob) => blob !== undefined);
+}
+
+/**
  * Replaces {{variables}} in a string with data from a row.
  * @param {string} template The text containing {{vars}}
  * @param {Array<string>} headers The array of column headers
@@ -56,9 +192,13 @@ function sendTestEmail(config) {
 
     const msg = draft.getMessage();
 
-    // Look for explicit CC/BCC columns
+    // Look for explicit CC/BCC/Attachment columns
     const ccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'cc');
     const bccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'bcc');
+    const attachmentColIndex = headers.findIndex((h) => {
+      const name = String(h).trim().toLowerCase();
+      return name === 'attachment' || name === 'attachments';
+    });
 
     // Process templates, falling back to Draft CC/BCC if columns are empty or don't exist
     const subject = replaceVariables(msg.getSubject(), headers, testRow);
@@ -77,7 +217,25 @@ function sendTestEmail(config) {
 
     // Extract inline image Content-IDs from the draft
     const inlineContentIds = getInlineContentIds_(msg.getId());
-    const attachments = msg.getAttachments({ includeInlineImages: true });
+    let attachments = msg.getAttachments({ includeInlineImages: true });
+
+    // Process personalized attachments from the spreadsheet
+    if (attachmentColIndex !== -1) {
+      const cellValue = testRow[attachmentColIndex];
+      let richTextValue = null;
+      if (cellValue && !String(cellValue).startsWith('#')) {
+        try {
+          richTextValue = sheet.getRange(2, attachmentColIndex + 1).getRichTextValue();
+        } catch (e) {
+          console.warn('Failed to read rich text for test email attachment', e);
+        }
+      }
+      const ids = extractDriveFileIds_(cellValue, richTextValue);
+      if (ids.length > 0) {
+        const customBlobs = getBlobsFromFileIds_(ids);
+        attachments = attachments.concat(customBlobs);
+      }
+    }
 
     // Build MIME message with custom tracking headers
     const raw = buildMimeMessage({
@@ -147,7 +305,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     if (lastRow < 2) throw new Error('No data available to send.');
 
     // Pre-flight validation
-    const validation = validateTemplate(config.draftId);
+    const validation = validateTemplate(config.draftId, sheet);
     if (!validation.isValid) {
       return {
         success: false,
@@ -163,6 +321,10 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const ccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'cc');
     const bccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'bcc');
+    const attachmentColIndex = headers.findIndex((h) => {
+      const name = String(h).trim().toLowerCase();
+      return name === 'attachment' || name === 'attachments';
+    });
 
     if (emailColIndex === -1) throw new Error('Email column not found.');
     if (statusColIndex === -1) {
@@ -175,6 +337,20 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
     const data = dataRange.getValues();
+
+    let attachmentRichTextData = null;
+    if (attachmentColIndex !== -1) {
+      try {
+        attachmentRichTextData = sheet
+          .getRange(2, attachmentColIndex + 1, lastRow - 1, 1)
+          .getRichTextValues();
+      } catch (e) {
+        console.warn(
+          'Bulk getRichTextValues failed, likely due to a formula error in the column. Falling back to row-by-row fetching for valid cells.',
+          e
+        );
+      }
+    }
 
     // Calculate total valid rows to process
     let totalToSend = 0;
@@ -254,6 +430,39 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     const senderEmail = config.senderAlias || Session.getActiveUser().getEmail();
     let sentCount = 0;
     const loopStart = startRow || 0;
+
+    // --- PARALLEL PRE-FETCHING ---
+    // Scan all valid rows to collect unique Google Drive File IDs
+    const allFileIds = new Set();
+    if (attachmentColIndex !== -1) {
+      for (let j = loopStart; j < data.length; j++) {
+        if (sheet.isRowHiddenByUser(j + 2) || sheet.isRowHiddenByFilter(j + 2)) continue;
+        const row = data[j];
+        if (row.every((cell) => !cell || String(cell).trim() === '')) continue;
+        const status = row[statusColIndex];
+        const email = String(row[emailColIndex]).trim();
+        if (!email || (status && status !== '')) continue;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) continue;
+
+        const cellValue = row[attachmentColIndex];
+        let richTextValue = null;
+        if (attachmentRichTextData && attachmentRichTextData.length > j) {
+          richTextValue = attachmentRichTextData[j][0];
+        } else if (cellValue && !String(cellValue).startsWith('#')) {
+          try {
+            richTextValue = sheet.getRange(j + 2, attachmentColIndex + 1).getRichTextValue();
+          } catch (e) {}
+        }
+        const ids = extractDriveFileIds_(cellValue, richTextValue);
+        ids.forEach((id) => allFileIds.add(id));
+      }
+    }
+
+    // Execute parallel Drive API requests to download attachments
+    const prefetchedBlobs = prefetchDriveAttachments_(Array.from(allFileIds));
+    // -----------------------------
+
     const executionStart = Date.now();
     const timeoutThreshold = isUiContext ? 25000 : MAX_EXECUTION_MS; // 25s for UI, 4.5m for triggers
 
@@ -325,6 +534,31 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       let bcc = bccColIndex !== -1 && row[bccColIndex] ? String(row[bccColIndex]).trim() : '';
       if (!bcc) bcc = replaceVariables(msg.getBcc(), headers, row);
 
+      let currentAttachments = [...attachments];
+      if (attachmentColIndex !== -1) {
+        const cellValue = row[attachmentColIndex];
+        let richTextValue = null;
+
+        if (attachmentRichTextData && attachmentRichTextData.length > i) {
+          richTextValue = attachmentRichTextData[i][0];
+        } else if (cellValue && !String(cellValue).startsWith('#')) {
+          // Fallback row-by-row if bulk fetch failed (and cell is not an error)
+          try {
+            richTextValue = sheet.getRange(i + 2, attachmentColIndex + 1).getRichTextValue();
+          } catch (e) {
+            console.warn('Row-level getRichTextValue failed for row ' + (i + 2), e);
+          }
+        }
+
+        const ids = extractDriveFileIds_(cellValue, richTextValue);
+        if (ids.length > 0) {
+          const customBlobs = ids
+            .map((id) => prefetchedBlobs[id])
+            .filter((blob) => blob !== undefined);
+          currentAttachments = currentAttachments.concat(customBlobs);
+        }
+      }
+
       const trackingId = Utilities.getUuid();
       callWithBackoff(() =>
         sheet.getRange(i + 2, emailColIndex + 1).setNote('Tracking ID: ' + trackingId)
@@ -380,7 +614,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         htmlBody: htmlBody,
         cc: cc,
         bcc: bcc,
-        attachments: attachments,
+        attachments: currentAttachments,
         inlineContentIds: inlineContentIds,
         customHeaders: {
           'X-Campaign-ID': campaignId,
@@ -516,8 +750,15 @@ function startBackgroundBatchEmails(config) {
   try {
     if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers();
 
+    let sheet;
+    if (config.spreadsheetId && config.sheetName) {
+      sheet = SpreadsheetApp.openById(config.spreadsheetId).getSheetByName(config.sheetName);
+    } else {
+      sheet = SpreadsheetApp.getActiveSheet();
+    }
+
     // Pre-flight validation
-    const validation = validateTemplate(config.draftId);
+    const validation = validateTemplate(config.draftId, sheet);
     if (!validation.isValid) {
       return {
         success: false,
@@ -603,8 +844,15 @@ function scheduleBatchEmails(config) {
       throw new Error('Scheduled time must be in the future.');
     }
 
+    let sheet;
+    if (config.spreadsheetId && config.sheetName) {
+      sheet = SpreadsheetApp.openById(config.spreadsheetId).getSheetByName(config.sheetName);
+    } else {
+      sheet = SpreadsheetApp.getActiveSheet();
+    }
+
     // Pre-flight validation
-    const validation = validateTemplate(config.draftId);
+    const validation = validateTemplate(config.draftId, sheet);
     if (!validation.isValid) {
       return {
         success: false,

@@ -113,6 +113,12 @@ function buildHomepageCard(e) {
       .setValue(config.replyTo || props[CONFIG.KEYS.REPLY_TO] || '')
   );
 
+
+  // Attachment Tip
+  const attachmentNote = CardService.newTextParagraph()
+    .setText('Tip: Add an "Attachment" column to your sheet with Google Drive links to include personalized attachments.');
+  configSection.addWidget(attachmentNote);
+
   builder.addSection(configSection);
 
   // Analytics Section

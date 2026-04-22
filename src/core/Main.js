@@ -84,11 +84,11 @@ function deleteTriggerByHandler(handlerName) {
  * @param {string} draftId
  * @returns {Object} { isValid: boolean, missingColumns: string[], variables: string[] }
  */
-function validateTemplate(draftId) {
-  const sheet = SpreadsheetApp.getActiveSheet();
+function validateTemplate(draftId, sheet) {
+  sheet = sheet || SpreadsheetApp.getActiveSheet();
 
   // Handle empty sheet case
-  if (sheet.getLastColumn() === 0) {
+  if (!sheet || sheet.getLastColumn() === 0) {
     return {
       isValid: false,
       missingColumns: ['Sheet is empty. Add headers to Row 1.'],
