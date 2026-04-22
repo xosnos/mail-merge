@@ -97,6 +97,16 @@ function getSpreadsheetIdFromTrigger(e) {
 }
 
 /**
+ * Retrieves the spreadsheet ID mapped to a trigger unique ID.
+ * @param {string} triggerUid
+ * @returns {string|null}
+ */
+function getTriggerMapping(triggerUid) {
+  if (!triggerUid) return null;
+  return PropertiesService.getUserProperties().getProperty(`TRIGGER_MAP_${triggerUid}`);
+}
+
+/**
  * Cleans up a trigger mapping to prevent UserProperties bloat.
  * @param {string} triggerUid
  */

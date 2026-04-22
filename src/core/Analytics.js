@@ -541,11 +541,15 @@ function runAnalyticsScanner(e) {
  */
 function setupAnalyticsTrigger() {
   try {
+    const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet()
+      ? SpreadsheetApp.getActiveSpreadsheet().getId()
+      : null;
+
     // Remove existing trigger first to avoid duplicates
-    removeAnalyticsTrigger();
+    removeAnalyticsTrigger(spreadsheetId);
 
     const trigger = ScriptApp.newTrigger('runAnalyticsScanner').timeBased().everyHours(3).create();
-    mapTriggerToSpreadsheet(trigger);
+    mapTriggerToSpreadsheet(trigger, spreadsheetId);
 
     setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId());
 
@@ -568,13 +572,13 @@ function setupAnalyticsTrigger() {
  * Removes the background analytics trigger.
  * @returns {Object} { success: boolean, message: string }
  */
-function removeAnalyticsTrigger() {
+function removeAnalyticsTrigger(spreadsheetId) {
   try {
-    const triggerId = getProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID);
+    const triggerId = getProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, spreadsheetId);
     if (triggerId) deleteTriggerMapping(triggerId);
 
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('runAnalyticsScanner');
+      deleteTriggerByHandler('runAnalyticsScanner', spreadsheetId);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -584,7 +588,9 @@ function removeAnalyticsTrigger() {
       });
     }
 
-    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID);
+    PropertiesService.getUserProperties().deleteProperty(
+      _getCompositeKey(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, spreadsheetId)
+    );
 
     return { success: true, message: 'Background scanning disabled.' };
   } catch (err) {

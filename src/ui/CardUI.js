@@ -147,21 +147,19 @@ function buildHomepageCard(e) {
       CardService.newKeyValue()
         .setTopLabel('Opened')
         .setContent(openStr)
-        .setIcon(CardService.Icon.EVENT_PER_DAY)
     );
 
     analyticsSection.addWidget(
       CardService.newKeyValue()
         .setTopLabel('Replied')
         .setContent(replyStr)
-        .setIcon(CardService.Icon.PEOPLE)
+        .setIcon(CardService.Icon.MULTIPLE_PEOPLE)
     );
 
     analyticsSection.addWidget(
       CardService.newKeyValue()
         .setTopLabel('Bounced')
         .setContent(bounceStr)
-        .setIcon(CardService.Icon.ERROR)
     );
 
     builder.addSection(analyticsSection);
@@ -234,7 +232,6 @@ function buildHomepageCard(e) {
             CardService.newKeyValue()
               .setTopLabel('Errors')
               .setContent(progress.errors.toString())
-              .setIcon(CardService.Icon.ERROR)
           );
         }
 

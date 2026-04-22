@@ -5,6 +5,344 @@
 
 // Maximum safe execution time in milliseconds (4 min 30 sec of the 6-min limit)
 const MAX_EXECUTION_MS = 270000;
+const SEND_BURST_SIZE = 20;
+const BURST_TIMEOUT_BUFFER_MS = 10000;
+const GMAIL_SEND_ENDPOINT = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Pre-calculates hidden/filtered rows once so the hot send loop can stay in-memory.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} rowCount Number of data rows starting at sheet row 2
+ * @returns {Array<boolean>} 0-based array aligned to the data rows
+ */
+function buildHiddenRowMap_(sheet, rowCount) {
+  const hiddenRows = [];
+  for (let i = 0; i < rowCount; i++) {
+    const rowNumber = i + 2;
+    hiddenRows[i] = sheet.isRowHiddenByUser(rowNumber) || sheet.isRowHiddenByFilter(rowNumber);
+  }
+  return hiddenRows;
+}
+
+/**
+ * Converts a zero-based column index into spreadsheet letters.
+ * @param {number} zeroBasedColumnIndex
+ * @returns {string}
+ */
+function toColumnLetters_(zeroBasedColumnIndex) {
+  let col = zeroBasedColumnIndex;
+  let letters = '';
+  while (col >= 0) {
+    letters = String.fromCharCode(65 + (col % 26)) + letters;
+    col = Math.floor(col / 26) - 1;
+  }
+  return letters;
+}
+
+/**
+ * Appends a line to an existing note without losing previous content.
+ * @param {string} existingNote
+ * @param {string} newLine
+ * @returns {string}
+ */
+function appendNoteLine_(existingNote, newLine) {
+  return existingNote ? existingNote + '\n' + newLine : newLine;
+}
+
+/**
+ * Tracks the smallest dirty row window for buffered sheet writes.
+ * @param {{start: (number|null), end: (number|null)}} dirtyWindow
+ * @param {number} rowIndex
+ */
+function markDirtyRow_(dirtyWindow, rowIndex) {
+  if (dirtyWindow.start === null || rowIndex < dirtyWindow.start) {
+    dirtyWindow.start = rowIndex;
+  }
+  if (dirtyWindow.end === null || rowIndex > dirtyWindow.end) {
+    dirtyWindow.end = rowIndex;
+  }
+}
+
+/**
+ * Flushes the buffered values/notes for the modified row window.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} statusColIndex
+ * @param {number} emailColIndex
+ * @param {Array<Array<string>>} statusValues
+ * @param {Array<Array<string>>} statusNotes
+ * @param {Array<Array<string>>} emailNotes
+ * @param {{start: (number|null), end: (number|null)}} dirtyWindow
+ */
+function flushBufferedSheetUpdates_(
+  sheet,
+  statusColIndex,
+  emailColIndex,
+  statusValues,
+  statusNotes,
+  emailNotes,
+  dirtyWindow
+) {
+  if (dirtyWindow.start === null || dirtyWindow.end === null) return;
+
+  const startRow = dirtyWindow.start + 2;
+  const rowCount = dirtyWindow.end - dirtyWindow.start + 1;
+
+  callWithBackoff(() => {
+    sheet
+      .getRange(startRow, statusColIndex + 1, rowCount, 1)
+      .setValues(statusValues.slice(dirtyWindow.start, dirtyWindow.end + 1));
+    sheet
+      .getRange(startRow, statusColIndex + 1, rowCount, 1)
+      .setNotes(statusNotes.slice(dirtyWindow.start, dirtyWindow.end + 1));
+    sheet
+      .getRange(startRow, emailColIndex + 1, rowCount, 1)
+      .setNotes(emailNotes.slice(dirtyWindow.start, dirtyWindow.end + 1));
+  });
+
+  dirtyWindow.start = null;
+  dirtyWindow.end = null;
+}
+
+/**
+ * Merges buffered send results with any tracker updates that may have landed first.
+ * This prevents a fast open ping from being overwritten back to "Email sent".
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} statusColIndex
+ * @param {Array<Array<string>>} statusValues
+ * @param {Array<Array<string>>} statusNotes
+ * @param {{start: (number|null), end: (number|null)}} dirtyWindow
+ */
+function mergeExistingStatusWindow_(sheet, statusColIndex, statusValues, statusNotes, dirtyWindow) {
+  if (dirtyWindow.start === null || dirtyWindow.end === null) return;
+
+  const startRow = dirtyWindow.start + 2;
+  const rowCount = dirtyWindow.end - dirtyWindow.start + 1;
+  const existingValues = sheet.getRange(startRow, statusColIndex + 1, rowCount, 1).getValues();
+  const existingNotes = sheet.getRange(startRow, statusColIndex + 1, rowCount, 1).getNotes();
+
+  for (let offset = 0; offset < rowCount; offset++) {
+    const rowIndex = dirtyWindow.start + offset;
+    const existingValue = String(existingValues[offset][0] || '');
+    const existingNote = existingNotes[offset][0] || '';
+    const bufferedValue = String(statusValues[rowIndex][0] || '');
+    const bufferedNote = statusNotes[rowIndex][0] || '';
+    const lower = existingValue.toLowerCase();
+
+    if (lower.includes('opened') || lower.includes('replied') || lower.includes('bounced')) {
+      statusValues[rowIndex][0] = existingValue;
+      statusNotes[rowIndex][0] = existingNote;
+
+      if (bufferedValue === 'Email sent' && bufferedNote && existingNote.indexOf('Sent: ') === -1) {
+        statusNotes[rowIndex][0] = appendNoteLine_(statusNotes[rowIndex][0], bufferedNote);
+      }
+    }
+  }
+}
+
+/**
+ * Builds a Gmail API send request for UrlFetchApp.fetchAll.
+ * @param {string} oauthToken
+ * @param {string} rawMessage
+ * @returns {Object}
+ */
+function buildGmailSendRequest_(oauthToken, rawMessage) {
+  return {
+    url: GMAIL_SEND_ENDPOINT,
+    method: 'post',
+    contentType: 'application/json; charset=utf-8',
+    headers: { Authorization: `Bearer ${oauthToken}` },
+    payload: JSON.stringify({ raw: rawMessage }),
+    muteHttpExceptions: true
+  };
+}
+
+/**
+ * Builds a Gmail API modify request that applies the campaign label to a sent message.
+ * @param {string} oauthToken
+ * @param {string} messageId
+ * @param {string} campaignLabelId
+ * @returns {Object}
+ */
+function buildGmailModifyLabelRequest_(oauthToken, messageId, campaignLabelId) {
+  return {
+    url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    method: 'post',
+    contentType: 'application/json; charset=utf-8',
+    headers: { Authorization: `Bearer ${oauthToken}` },
+    payload: JSON.stringify({ addLabelIds: [campaignLabelId] }),
+    muteHttpExceptions: true
+  };
+}
+
+/**
+ * Extracts a readable Gmail API error message from an HTTP response body.
+ * @param {GoogleAppsScript.URL_Fetch.HTTPResponse} response
+ * @returns {string}
+ */
+function extractGmailSendError_(response) {
+  const code = response.getResponseCode();
+  const body = response.getContentText() || '';
+
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed && parsed.error) {
+      if (parsed.error.message) {
+        return `Gmail API ${code}: ${parsed.error.message}`;
+      }
+      if (parsed.error.errors && parsed.error.errors.length > 0 && parsed.error.errors[0].message) {
+        return `Gmail API ${code}: ${parsed.error.errors[0].message}`;
+      }
+    }
+  } catch {
+    // Fall through to plain text handling.
+  }
+
+  return body ? `Gmail API ${code}: ${body}` : `Gmail API ${code}`;
+}
+
+/**
+ * Determines whether a Gmail API send response should be retried.
+ * @param {GoogleAppsScript.URL_Fetch.HTTPResponse} response
+ * @returns {boolean}
+ */
+function isRetryableGmailSendResponse_(response) {
+  const code = response.getResponseCode();
+  if (code === 429 || code === 500 || code === 502 || code === 503 || code === 504) {
+    return true;
+  }
+  if (code !== 403) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(response.getContentText() || '{}');
+    const reasons = (parsed.error && parsed.error.errors) || [];
+    return reasons.some((item) => {
+      const reason = item.reason || '';
+      return (
+        reason === 'rateLimitExceeded' ||
+        reason === 'userRateLimitExceeded' ||
+        reason === 'backendError'
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sends a burst of Gmail API requests in parallel and retries only the failed subset.
+ * @param {Array<Object>} burstEntries
+ * @param {string} oauthToken
+ * @returns {Array<Object>}
+ */
+function sendBurstRequests_(burstEntries, oauthToken) {
+  const maxRetries = 5;
+  const baseDelayMs = 1000;
+  const results = new Array(burstEntries.length);
+  let pending = burstEntries.map((entry, index) => ({ entry, index, attempt: 0 }));
+
+  while (pending.length > 0) {
+    const requests = pending.map((item) =>
+      buildGmailSendRequest_(oauthToken, item.entry.raw)
+    );
+    const responses = callWithBackoff(() => UrlFetchApp.fetchAll(requests));
+    const retryQueue = [];
+
+    responses.forEach((response, responseIndex) => {
+      const item = pending[responseIndex];
+      const code = response.getResponseCode();
+
+      if (code >= 200 && code < 300) {
+        let messageId;
+        try {
+          const parsed = JSON.parse(response.getContentText() || '{}');
+          messageId = parsed.id || null;
+        } catch {
+          messageId = null;
+        }
+        results[item.index] = { success: true, messageId };
+        return;
+      }
+
+      if (isRetryableGmailSendResponse_(response) && item.attempt < maxRetries) {
+        retryQueue.push({ entry: item.entry, index: item.index, attempt: item.attempt + 1 });
+        return;
+      }
+
+      results[item.index] = {
+        success: false,
+        message: extractGmailSendError_(response)
+      };
+    });
+
+    if (retryQueue.length === 0) {
+      break;
+    }
+
+    const attempt = retryQueue.reduce((max, item) => Math.max(max, item.attempt), 0);
+    const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000;
+    Utilities.sleep(delay);
+    pending = retryQueue;
+  }
+
+  return results;
+}
+
+/**
+ * Applies the campaign label to successfully sent messages in parallel.
+ * @param {Array<Object>} sendResults
+ * @param {string} oauthToken
+ * @param {string|null} campaignLabelId
+ * @returns {Object<string, string>} Map of rowIndex -> label error message
+ */
+function applyCampaignLabelsToBurst_(sendResults, oauthToken, campaignLabelId) {
+  const labelErrorsByRow = {};
+  if (!campaignLabelId) return labelErrorsByRow;
+
+  const targets = sendResults.filter((result) => result && result.success && result.messageId);
+  if (targets.length === 0) return labelErrorsByRow;
+
+  const maxRetries = 5;
+  const baseDelayMs = 1000;
+  let pending = targets.map((result, index) => ({ result, index, attempt: 0 }));
+
+  while (pending.length > 0) {
+    const requests = pending.map((item) =>
+      buildGmailModifyLabelRequest_(oauthToken, item.result.messageId, campaignLabelId)
+    );
+    const responses = callWithBackoff(() => UrlFetchApp.fetchAll(requests));
+    const retryQueue = [];
+
+    responses.forEach((response, responseIndex) => {
+      const item = pending[responseIndex];
+      const code = response.getResponseCode();
+
+      if (code >= 200 && code < 300) {
+        return;
+      }
+
+      if (isRetryableGmailSendResponse_(response) && item.attempt < maxRetries) {
+        retryQueue.push({ result: item.result, index: item.index, attempt: item.attempt + 1 });
+        return;
+      }
+
+      labelErrorsByRow[item.result.rowIndex] = extractGmailSendError_(response);
+    });
+
+    if (retryQueue.length === 0) {
+      break;
+    }
+
+    const attempt = retryQueue.reduce((max, item) => Math.max(max, item.attempt), 0);
+    const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000;
+    Utilities.sleep(delay);
+    pending = retryQueue;
+  }
+
+  return labelErrorsByRow;
+}
 
 /**
  * Extracts Google Drive file IDs from plain text or rich text hyperlinks.
@@ -275,7 +613,7 @@ function sendTestEmail(config) {
 function sendBatchEmails(config, startRow, isUiContext = false) {
   try {
     if ((!startRow || startRow === 0) && typeof cleanupOrphanedTriggers === 'function') {
-      cleanupOrphanedTriggers();
+      cleanupOrphanedTriggers(config.spreadsheetId);
     }
 
     // Save state in case of UI reload
@@ -337,6 +675,12 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
     const data = dataRange.getValues();
+    const hiddenRows = buildHiddenRowMap_(sheet, data.length);
+
+    const statusValues = sheet.getRange(2, statusColIndex + 1, data.length, 1).getValues();
+    const statusNotes = sheet.getRange(2, statusColIndex + 1, data.length, 1).getNotes();
+    const emailNotes = sheet.getRange(2, emailColIndex + 1, data.length, 1).getNotes();
+    const dirtyWindow = { start: null, end: null };
 
     let attachmentRichTextData = null;
     if (attachmentColIndex !== -1) {
@@ -355,16 +699,14 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     // Calculate total valid rows to process
     let totalToSend = 0;
     for (let j = 0; j < data.length; j++) {
-      // Skip hidden rows
-      if (sheet.isRowHiddenByUser(j + 2) || sheet.isRowHiddenByFilter(j + 2)) continue;
+      if (hiddenRows[j]) continue;
 
       const row = data[j];
       if (row.every((cell) => !cell || String(cell).trim() === '')) continue;
-      const status = row[statusColIndex];
+      const status = statusValues[j][0];
       const email = String(row[emailColIndex]).trim();
       if (!email || (status && status !== '')) continue;
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) continue;
+      if (!EMAIL_REGEX.test(email)) continue;
       totalToSend++;
     }
 
@@ -390,6 +732,11 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     const draft = GmailApp.getDraft(config.draftId);
     if (!draft) throw new Error('Draft not found.');
     const msg = draft.getMessage();
+    const subjectTemplate = msg.getSubject() || '';
+    const htmlTemplate = msg.getBody() || '';
+    const plainTemplate = msg.getPlainBody() || '';
+    const ccTemplate = msg.getCc() || '';
+    const bccTemplate = msg.getBcc() || '';
     const inlineContentIds = getInlineContentIds_(msg.getId());
     const attachments = msg.getAttachments({ includeInlineImages: true });
 
@@ -412,12 +759,14 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       labelName = labelName.replace(/[/\\:*?"<>|]/g, '').trim(); // Sanitize invalid label characters
 
       try {
-        const labelsList = Gmail.Users.Labels.list('me');
+        const labelsList = callWithBackoff(() => Gmail.Users.Labels.list('me'));
         const existingLabel = labelsList.labels.find((l) => l.name === labelName);
         if (existingLabel) {
           campaignLabelId = existingLabel.id;
         } else {
-          const createdLabel = Gmail.Users.Labels.create({ name: labelName }, 'me');
+          const createdLabel = callWithBackoff(() =>
+            Gmail.Users.Labels.create({ name: labelName }, 'me')
+          );
           campaignLabelId = createdLabel.id;
         }
         setProperty(CONFIG.KEYS.CAMPAIGN_LABEL, labelName);
@@ -428,6 +777,9 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     }
 
     const senderEmail = config.senderAlias || Session.getActiveUser().getEmail();
+    const oauthToken = ScriptApp.getOAuthToken();
+    const spreadsheetTimeZone = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
+    const statusColumnLetters = toColumnLetters_(statusColIndex);
     let sentCount = 0;
     const loopStart = startRow || 0;
 
@@ -436,14 +788,13 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     const allFileIds = new Set();
     if (attachmentColIndex !== -1) {
       for (let j = loopStart; j < data.length; j++) {
-        if (sheet.isRowHiddenByUser(j + 2) || sheet.isRowHiddenByFilter(j + 2)) continue;
+        if (hiddenRows[j]) continue;
         const row = data[j];
         if (row.every((cell) => !cell || String(cell).trim() === '')) continue;
-        const status = row[statusColIndex];
+        const status = statusValues[j][0];
         const email = String(row[emailColIndex]).trim();
         if (!email || (status && status !== '')) continue;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) continue;
+        if (!EMAIL_REGEX.test(email)) continue;
 
         const cellValue = row[attachmentColIndex];
         let richTextValue = null;
@@ -467,16 +818,88 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const executionStart = Date.now();
     const timeoutThreshold = isUiContext ? 25000 : MAX_EXECUTION_MS; // 25s for UI, 4.5m for triggers
+    let burstEntries = [];
+
+    const flushBurst = () => {
+      if (burstEntries.length === 0) {
+        flushBufferedSheetUpdates_(
+          sheet,
+          statusColIndex,
+          emailColIndex,
+          statusValues,
+          statusNotes,
+          emailNotes,
+          dirtyWindow
+        );
+        return;
+      }
+
+      const results = sendBurstRequests_(burstEntries, oauthToken);
+      results.forEach((result, resultIndex) => {
+        if (result && result.success) {
+          result.rowIndex = burstEntries[resultIndex].rowIndex;
+        }
+      });
+      const labelErrorsByRow = applyCampaignLabelsToBurst_(results, oauthToken, campaignLabelId);
+      const sentTimeString = Utilities.formatDate(new Date(), spreadsheetTimeZone, 'MM/dd HH:mm z');
+
+      results.forEach((result, resultIndex) => {
+        const entry = burstEntries[resultIndex];
+        if (result && result.success) {
+          statusValues[entry.rowIndex][0] = 'Email sent';
+          statusNotes[entry.rowIndex][0] = appendNoteLine_(
+            statusNotes[entry.rowIndex][0],
+            `Sent: ${sentTimeString}`
+          );
+          if (labelErrorsByRow[entry.rowIndex]) {
+            statusNotes[entry.rowIndex][0] = appendNoteLine_(
+              statusNotes[entry.rowIndex][0],
+              `Label warning: ${labelErrorsByRow[entry.rowIndex]}`
+            );
+          }
+          sentCount++;
+        } else {
+          statusValues[entry.rowIndex][0] = 'Error';
+          statusNotes[entry.rowIndex][0] = appendNoteLine_(
+            statusNotes[entry.rowIndex][0],
+            `Error: ${result && result.message ? result.message : 'Unknown send failure'}`
+          );
+        }
+        markDirtyRow_(dirtyWindow, entry.rowIndex);
+      });
+
+      mergeExistingStatusWindow_(sheet, statusColIndex, statusValues, statusNotes, dirtyWindow);
+
+      flushBufferedSheetUpdates_(
+        sheet,
+        statusColIndex,
+        emailColIndex,
+        statusValues,
+        statusNotes,
+        emailNotes,
+        dirtyWindow
+      );
+
+      cache.put(
+        CONFIG.KEYS.PROGRESS_CACHE,
+        JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }),
+        600
+      );
+
+      burstEntries = [];
+    };
 
     for (let i = loopStart; i < data.length; i++) {
       // ---- Timeout guard ----
       if (Date.now() - executionStart > timeoutThreshold) {
+        flushBurst();
+
         // Save state and schedule continuation
         setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i));
         setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
 
         // Clean up before creating to avoid trigger quota exhaustion
-        cleanupOrphanedTriggers();
+        cleanupOrphanedTriggers(config.spreadsheetId || spreadsheet.getId());
         const trigger = ScriptApp.newTrigger('resumeBatchSend')
           .timeBased()
           .after(60 * 1000) // resume in ~1 minute
@@ -498,8 +921,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         };
       }
 
-      // Skip hidden rows
-      if (sheet.isRowHiddenByUser(i + 2) || sheet.isRowHiddenByFilter(i + 2)) continue;
+      if (hiddenRows[i]) continue;
 
       const row = data[i];
 
@@ -508,7 +930,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         continue;
       }
 
-      const status = row[statusColIndex];
+      const status = statusValues[i][0];
       const email = String(row[emailColIndex]).trim();
 
       // Skip previously sent or missing email
@@ -517,27 +939,22 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       }
 
       // Basic email syntax validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        sheet.getRange(i + 2, statusColIndex + 1).setValue('Invalid Email');
+      if (!EMAIL_REGEX.test(email)) {
+        statusValues[i][0] = 'Invalid Email';
+        markDirtyRow_(dirtyWindow, i);
         continue;
       }
 
-      // Skip if out of quota
-      if (MailApp.getRemainingDailyQuota() < 1) {
-        return { success: false, message: `Sent ${sentCount} emails but ran out of quota.` };
-      }
-
       // Process variables
-      const subject = replaceVariables(msg.getSubject(), headers, row);
-      let htmlBody = replaceVariables(msg.getBody(), headers, row);
-      const plainBody = replaceVariables(msg.getPlainBody(), headers, row);
+      const subject = replaceVariables(subjectTemplate, headers, row);
+      let htmlBody = replaceVariables(htmlTemplate, headers, row);
+      const plainBody = replaceVariables(plainTemplate, headers, row);
 
       let cc = ccColIndex !== -1 && row[ccColIndex] ? String(row[ccColIndex]).trim() : '';
-      if (!cc) cc = replaceVariables(msg.getCc(), headers, row);
+      if (!cc) cc = replaceVariables(ccTemplate, headers, row);
 
       let bcc = bccColIndex !== -1 && row[bccColIndex] ? String(row[bccColIndex]).trim() : '';
-      if (!bcc) bcc = replaceVariables(msg.getBcc(), headers, row);
+      if (!bcc) bcc = replaceVariables(bccTemplate, headers, row);
 
       let currentAttachments = [...attachments];
       if (attachmentColIndex !== -1) {
@@ -565,23 +982,15 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       }
 
       const trackingId = Utilities.getUuid();
-      callWithBackoff(() =>
-        sheet.getRange(i + 2, emailColIndex + 1).setNote('Tracking ID: ' + trackingId)
-      );
+      emailNotes[i][0] = 'Tracking ID: ' + trackingId;
+      markDirtyRow_(dirtyWindow, i);
 
       // Append tracking pixel if central tracking is configured
       if (CONFIG.TRACKING.CENTRAL_URL && CONFIG.TRACKING.SECRET_KEY) {
         const sheetId = config.spreadsheetId || spreadsheet.getId();
         const sheetName = encodeURIComponent(config.sheetName || sheet.getName());
         const rowNum = i + 2;
-
-        let col = statusColIndex;
-        let colLetters = '';
-        while (col >= 0) {
-          colLetters = String.fromCharCode(65 + (col % 26)) + colLetters;
-          col = Math.floor(col / 26) - 1;
-        }
-        const cell = `${colLetters}${rowNum}`;
+        const cell = `${statusColumnLetters}${rowNum}`;
         const user = Session.getActiveUser().getEmail();
 
         const ts = Date.now();
@@ -628,49 +1037,53 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         }
       });
 
-      try {
-        const sentMessage = callWithBackoff(() => Gmail.Users.Messages.send({ raw: raw }, 'me'));
+      burstEntries.push({
+        rowIndex: i,
+        raw: raw
+      });
 
-        if (campaignLabelId) {
-          try {
-            callWithBackoff(() =>
-              Gmail.Users.Messages.modify({ addLabelIds: [campaignLabelId] }, 'me', sentMessage.id)
-            );
-          } catch (labelErr) {
-            console.error('Failed to label message', labelErr);
-          }
+      if (
+        burstEntries.length >= SEND_BURST_SIZE ||
+        Date.now() - executionStart > timeoutThreshold - BURST_TIMEOUT_BUFFER_MS
+      ) {
+        flushBurst();
+        if (Date.now() - executionStart > timeoutThreshold && i < data.length - 1) {
+          setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i + 1));
+          setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
+
+          cleanupOrphanedTriggers(config.spreadsheetId || spreadsheet.getId());
+          const trigger = ScriptApp.newTrigger('resumeBatchSend')
+            .timeBased()
+            .after(60 * 1000)
+            .create();
+          mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
+
+          cache.put(
+            CONFIG.KEYS.PROGRESS_CACHE,
+            JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }),
+            7200
+          );
+
+          return {
+            success: true,
+            message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 minute (timeout management).`,
+            sentCount: sentCount,
+            total: totalToSend,
+            status: 'paused'
+          };
         }
-
-        const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
-        const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm z');
-        callWithBackoff(() => {
-          const range = sheet.getRange(i + 2, statusColIndex + 1);
-          range.setValue('Email sent');
-          const existingNote = range.getNote() || '';
-          const newNote = `Sent: ${timeString}`;
-          range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
-        });
-        sentCount++;
-        // Update Cache periodically
-        cache.put(
-          CONFIG.KEYS.PROGRESS_CACHE,
-          JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }),
-          600
-        );
-      } catch (e) {
-        callWithBackoff(() => {
-          const range = sheet.getRange(i + 2, statusColIndex + 1);
-          range.setValue('Error');
-          const existingNote = range.getNote() || '';
-          const newNote = `Error: ${e.message}`;
-          range.setNote(existingNote ? existingNote + '\n' + newNote : newNote);
-        });
       }
     }
 
+    flushBurst();
+
     // Clean up resumption state on completion
-    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
-    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.BATCH_CONFIG);
+    PropertiesService.getUserProperties().deleteProperty(
+      _getCompositeKey(CONFIG.KEYS.LAST_PROCESSED_ROW, config.spreadsheetId || spreadsheet.getId())
+    );
+    PropertiesService.getUserProperties().deleteProperty(
+      _getCompositeKey(CONFIG.KEYS.BATCH_CONFIG, config.spreadsheetId || spreadsheet.getId())
+    );
 
     // Update progress on completion
     cache.put(
@@ -706,7 +1119,7 @@ function resumeBatchSend(e) {
 
     // Delete the trigger that called us so it doesn't re-fire
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('resumeBatchSend');
+      deleteTriggerByHandler('resumeBatchSend', spreadsheetId);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -757,7 +1170,7 @@ function getMergeProgress() {
  */
 function startBackgroundBatchEmails(config) {
   try {
-    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers();
+    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers(config.spreadsheetId);
 
     let sheet;
     if (config.spreadsheetId && config.sheetName) {
@@ -780,7 +1193,7 @@ function startBackgroundBatchEmails(config) {
 
     // Clear any existing background triggers for immediate send
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('runBackgroundBatchSend');
+      deleteTriggerByHandler('runBackgroundBatchSend', config.spreadsheetId);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -792,7 +1205,7 @@ function startBackgroundBatchEmails(config) {
 
     // Guard against trigger quota exhaustion (limit: 20 per user per script)
     if (ScriptApp.getProjectTriggers().length >= 18) {
-      cleanupOrphanedTriggers();
+      cleanupOrphanedTriggers(config.spreadsheetId);
       if (ScriptApp.getProjectTriggers().length >= 18) {
         return {
           success: false,
@@ -826,7 +1239,7 @@ function runBackgroundBatchSend(e) {
 
     // Delete the trigger that called us
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('runBackgroundBatchSend');
+      deleteTriggerByHandler('runBackgroundBatchSend', spreadsheetId);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -861,7 +1274,7 @@ function runBackgroundBatchSend(e) {
  */
 function scheduleBatchEmails(config) {
   try {
-    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers();
+    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers(config.spreadsheetId);
 
     const scheduleTime = new Date(config.scheduleDate).getTime();
     const now = Date.now();
@@ -891,7 +1304,7 @@ function scheduleBatchEmails(config) {
 
     // Clear any existing scheduled triggers just in case (single campaign assumption)
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('startScheduledBatchSend');
+      deleteTriggerByHandler('startScheduledBatchSend', config.spreadsheetId);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -908,7 +1321,7 @@ function scheduleBatchEmails(config) {
 
     // Guard against trigger quota exhaustion (limit: 20 per user per script)
     if (ScriptApp.getProjectTriggers().length >= 18) {
-      cleanupOrphanedTriggers();
+      cleanupOrphanedTriggers(config.spreadsheetId);
       if (ScriptApp.getProjectTriggers().length >= 18) {
         return {
           success: false,
@@ -941,11 +1354,14 @@ function scheduleBatchEmails(config) {
 /**
  * Invoked by a time-driven trigger to start a scheduled batch.
  */
-function startScheduledBatchSend() {
+function startScheduledBatchSend(e) {
   try {
+    const spreadsheetId = getSpreadsheetIdFromTrigger(e);
+    if (e && e.triggerUid) deleteTriggerMapping(e.triggerUid);
+
     // Delete the trigger that called us
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('startScheduledBatchSend');
+      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -956,14 +1372,16 @@ function startScheduledBatchSend() {
     }
 
     // Retrieve saved configuration
-    const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
+    const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId);
     if (!configJson) {
       console.log('startScheduledBatchSend: No scheduled config found.');
       return;
     }
 
     const config = JSON.parse(configJson);
-    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
+    PropertiesService.getUserProperties().deleteProperty(
+      _getCompositeKey(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId)
+    );
 
     console.log('startScheduledBatchSend: Starting scheduled batch send.');
     const result = sendBatchEmails(config, 0);

@@ -6,7 +6,7 @@
  * Cleans up orphaned time-driven triggers for this project.
  * Limits the number of triggers for background functions to prevent hitting quota limits.
  */
-function cleanupOrphanedTriggers() {
+function cleanupOrphanedTriggers(spreadsheetId) {
   try {
     const activeHandlers = [
       'runBackgroundBatchSend',
@@ -14,45 +14,42 @@ function cleanupOrphanedTriggers() {
       'resumeBatchSend',
       'runAnalyticsScanner'
     ];
-    const seen = {};
-// Clean up project triggers
-const projectTriggers = ScriptApp.getProjectTriggers();
-projectTriggers.forEach((t) => {
-  const handler = t.getHandlerFunction();
-  if (activeHandlers.includes(handler)) {
-    if (seen[handler]) {
-      if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(t.getUniqueId());
-      ScriptApp.deleteTrigger(t);
-    } else {
-      seen[handler] = true;
-    }
-  } else if (t.getEventType() === ScriptApp.EventType.CLOCK) {
-    if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(t.getUniqueId());
-    ScriptApp.deleteTrigger(t);
-  }
-});
-
-// Clean up document triggers (Add-on specific limits apply per document)
-try {
-  const doc = SpreadsheetApp.getActiveSpreadsheet();
-  if (doc) {
-    const docTriggers = ScriptApp.getUserTriggers(doc);
-    const docSeen = {};
-    docTriggers.forEach((t) => {
-      const handler = t.getHandlerFunction();
-      if (activeHandlers.includes(handler)) {
-        if (docSeen[handler]) {
-          if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(t.getUniqueId());
-          ScriptApp.deleteTrigger(t);
-        } else {
-          docSeen[handler] = true;
-        }
-      } else if (t.getEventType() === ScriptApp.EventType.CLOCK) {
-        if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(t.getUniqueId());
-        ScriptApp.deleteTrigger(t);
+    let targetSpreadsheetId = spreadsheetId || null;
+    if (!targetSpreadsheetId) {
+      try {
+        const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+        if (activeSpreadsheet) targetSpreadsheetId = activeSpreadsheet.getId();
+      } catch (e) {
+        // Ignore missing spreadsheet context.
       }
-    });
-  }
+    }
+
+    const deletedTriggerIds = {};
+    const maybeDeleteTrigger = (trigger) => {
+      if (!trigger || deletedTriggerIds[trigger.getUniqueId()]) return;
+      if (trigger.getEventType() !== ScriptApp.EventType.CLOCK) return;
+
+      const handler = trigger.getHandlerFunction();
+      if (!activeHandlers.includes(handler)) return;
+
+      const mappedSpreadsheetId =
+        typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
+      if (targetSpreadsheetId && mappedSpreadsheetId && mappedSpreadsheetId !== targetSpreadsheetId) {
+        return;
+      }
+
+      deletedTriggerIds[trigger.getUniqueId()] = true;
+      if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(trigger.getUniqueId());
+      ScriptApp.deleteTrigger(trigger);
+    };
+
+    ScriptApp.getProjectTriggers().forEach(maybeDeleteTrigger);
+
+    try {
+      const doc = SpreadsheetApp.getActiveSpreadsheet();
+      if (doc && (!targetSpreadsheetId || doc.getId() === targetSpreadsheetId)) {
+        ScriptApp.getUserTriggers(doc).forEach(maybeDeleteTrigger);
+      }
     } catch (docErr) {
       console.error('Doc trigger cleanup ignored: ' + docErr);
     }
@@ -61,26 +58,40 @@ try {
   }
 }
 
-function deleteTriggerByHandler(handlerName) {
+function deleteTriggerByHandler(handlerName, spreadsheetId) {
   try {
-    const projectTriggers = ScriptApp.getProjectTriggers();
-    projectTriggers.forEach((t) => {
-      if (t.getHandlerFunction() === handlerName) {
-        if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(t.getUniqueId());
-        ScriptApp.deleteTrigger(t);
+    let targetSpreadsheetId = spreadsheetId || null;
+    if (!targetSpreadsheetId) {
+      try {
+        const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+        if (activeSpreadsheet) targetSpreadsheetId = activeSpreadsheet.getId();
+      } catch (e) {
+        // Ignore missing spreadsheet context.
       }
-    });
+    }
+
+    const deletedTriggerIds = {};
+    const maybeDeleteTrigger = (trigger) => {
+      if (!trigger || deletedTriggerIds[trigger.getUniqueId()]) return;
+      if (trigger.getHandlerFunction() !== handlerName) return;
+
+      const mappedSpreadsheetId =
+        typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
+      if (targetSpreadsheetId && mappedSpreadsheetId && mappedSpreadsheetId !== targetSpreadsheetId) {
+        return;
+      }
+
+      deletedTriggerIds[trigger.getUniqueId()] = true;
+      if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(trigger.getUniqueId());
+      ScriptApp.deleteTrigger(trigger);
+    };
+
+    ScriptApp.getProjectTriggers().forEach(maybeDeleteTrigger);
 
     try {
       const doc = SpreadsheetApp.getActiveSpreadsheet();
-      if (doc) {
-        const docTriggers = ScriptApp.getUserTriggers(doc);
-        docTriggers.forEach((t) => {
-          if (t.getHandlerFunction() === handlerName) {
-            if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(t.getUniqueId());
-            ScriptApp.deleteTrigger(t);
-          }
-        });
+      if (doc && (!targetSpreadsheetId || doc.getId() === targetSpreadsheetId)) {
+        ScriptApp.getUserTriggers(doc).forEach(maybeDeleteTrigger);
       }
     } catch (e) {
       // Ignore if not bound to doc
