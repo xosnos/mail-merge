@@ -38,7 +38,7 @@ This internal tool enables non-technical users to execute personalized mass emai
 
 - **Draft Retrieval:** The tool must fetch all current user drafts from Gmail and display their subject lines in a dropdown menu within the Sheets sidebar.
 - **Variable Parsing:** The tool must identify variables enclosed in double curly brackets `{{ }}` within the Subject, Body (HTML and plain text), To, CC, and BCC fields of the draft.
-- **Attachment Support:** Any attachments present in the Gmail draft must be carried over and sent with the merged emails.
+- **Attachment Support:** Any attachments present in the Gmail draft must be carried over and sent with the merged emails. Additionally, an "Attachment" column containing Google Drive links dynamically fetches and adds those files to the email.
 
 ### 5.2 Data Mapping & Execution (Google Sheets Integration)
 
@@ -85,6 +85,13 @@ The tool must accurately update the "Merge Status" column with the highest-achie
   - _Pixel Injection:_ Append `<img src="YOUR_WEB_APP_URL?sheetId=...&tid=TRACKING_ID&ts=TIMESTAMP" width="1" height="1" />` to the draft's HTML body.
   - _Webhook Handling:_ When the pixel is loaded, the Web App receives the data, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet using the `tid` via the Sheets API, and updates the status to "Opened".
   - _Time-Driven Triggers:_ Set up a background trigger (e.g., every 3 hours) that searches the user's inbox for replies (`in:inbox newer_than:7d -from:me`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via `X-Campaign-ID` and tracking ID custom headers.
+
+---
+
+## 8. Future Enhancements (Post-MVP)
+
+- **Follow-up Campaigns:** Add the ability to automatically send a follow-up draft to users whose status remains "Sent" (not opened) after X days.
+om headers.
 
 ---
 

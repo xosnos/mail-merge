@@ -40,30 +40,103 @@ const CONFIG = {
 };
 
 /**
- * Saves a single key-value pair to Document Properties
+ * Helper to generate a composite key isolated by spreadsheet ID.
  * @param {string} key
- * @param {string} value
+ * @param {string} [spreadsheetId]
+ * @returns {string}
  */
-function setProperty(key, value) {
-  const props = PropertiesService.getDocumentProperties();
-  props.setProperty(key, value);
+let _activeTriggerSpreadsheetId = null;
+
+/**
+ * Initializes the background trigger context with the mapped spreadsheet ID.
+ * @param {Object} e Trigger event object
+ */
+function setTriggerSpreadsheetIdContext(e) {
+  if (e && e.triggerUid) {
+    _activeTriggerSpreadsheetId = PropertiesService.getUserProperties().getProperty(`TRIGGER_MAP_${e.triggerUid}`);
+  }
+}
+
+function _getCompositeKey(key, spreadsheetId) {
+  let id = spreadsheetId || _activeTriggerSpreadsheetId;
+  if (!id) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) id = ss.getId();
+  }
+  return id ? `${id}_${key}` : key;
 }
 
 /**
- * Gets a value from Document Properties
- * @param {string} key
+ * Maps a trigger's unique ID to a spreadsheet ID so background tasks can resolve it.
+ * @param {GoogleAppsScript.Script.Trigger} trigger
+ * @param {string} [spreadsheetId]
+ */
+function mapTriggerToSpreadsheet(trigger, spreadsheetId) {
+  let id = spreadsheetId;
+  if (!id) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) id = ss.getId();
+  }
+  if (trigger && id) {
+    PropertiesService.getUserProperties().setProperty(`TRIGGER_MAP_${trigger.getUniqueId()}`, id);
+  }
+}
+
+/**
+ * Retrieves the spreadsheet ID for a background trigger using its event object.
+ * @param {Object} [e] Time-driven event object
  * @returns {string|null}
  */
-function getProperty(key) {
-  return PropertiesService.getDocumentProperties().getProperty(key);
+function getSpreadsheetIdFromTrigger(e) {
+  if (e && e.triggerUid) {
+    const mapped = PropertiesService.getUserProperties().getProperty(`TRIGGER_MAP_${e.triggerUid}`);
+    if (mapped) return mapped;
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss ? ss.getId() : null;
 }
 
 /**
- * Clears all properties associated with the tool
+ * Cleans up a trigger mapping to prevent UserProperties bloat.
+ * @param {string} triggerUid
  */
-function clearProperties() {
-  const props = PropertiesService.getDocumentProperties();
+function deleteTriggerMapping(triggerUid) {
+  if (triggerUid) {
+    PropertiesService.getUserProperties().deleteProperty(`TRIGGER_MAP_${triggerUid}`);
+  }
+}
+
+/**
+ * Saves a single key-value pair to User Properties (per-user, prevents cross-user collisions).
+ * Isolated per spreadsheet to prevent state bleed in standalone add-ons.
+ * @param {string} key
+ * @param {string} value
+ * @param {string} [spreadsheetId]
+ */
+function setProperty(key, value, spreadsheetId) {
+  const compositeKey = _getCompositeKey(key, spreadsheetId);
+  PropertiesService.getUserProperties().setProperty(compositeKey, value);
+}
+
+/**
+ * Gets a value from User Properties, isolated per spreadsheet.
+ * @param {string} key
+ * @param {string} [spreadsheetId]
+ * @returns {string|null}
+ */
+function getProperty(key, spreadsheetId) {
+  const compositeKey = _getCompositeKey(key, spreadsheetId);
+  return PropertiesService.getUserProperties().getProperty(compositeKey);
+}
+
+/**
+ * Clears all properties associated with the tool for the current user and spreadsheet.
+ * @param {string} [spreadsheetId]
+ */
+function clearProperties(spreadsheetId) {
+  const props = PropertiesService.getUserProperties();
   Object.values(CONFIG.KEYS).forEach((key) => {
-    props.deleteProperty(key);
+    const compositeKey = _getCompositeKey(key, spreadsheetId);
+    props.deleteProperty(compositeKey);
   });
 }

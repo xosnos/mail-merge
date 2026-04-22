@@ -23,7 +23,8 @@ function buildHomepageCard(e) {
   // Load Data
   const drafts = getGmailDrafts();
   const aliases = getGmailAliases();
-  const props = PropertiesService.getDocumentProperties().getProperties();
+  // UserProperties is per-user — prevents User A from seeing User B's saved config
+  const props = PropertiesService.getUserProperties().getProperties();
   const sheet = SpreadsheetApp.getActiveSheet();
 
   let headers = [];
@@ -113,10 +114,10 @@ function buildHomepageCard(e) {
       .setValue(config.replyTo || props[CONFIG.KEYS.REPLY_TO] || '')
   );
 
-
   // Attachment Tip
-  const attachmentNote = CardService.newTextParagraph()
-    .setText('Tip: Add an "Attachment" column to your sheet with Google Drive links to include personalized attachments.');
+  const attachmentNote = CardService.newTextParagraph().setText(
+    'Tip: Add an "Attachment" column to your sheet with Google Drive links to include personalized attachments.'
+  );
   configSection.addWidget(attachmentNote);
 
   builder.addSection(configSection);
@@ -207,8 +208,8 @@ function buildHomepageCard(e) {
 
   builder.addSection(advancedSection);
 
-  // Batch Progress Section
-  const cache = CacheService.getDocumentCache();
+  // Batch Progress Section (user-scoped cache)
+  const cache = CacheService.getUserCache();
   if (config.spreadsheetId) {
     const cachedProgress = cache.get(CONFIG.KEYS.BATCH_PROGRESS + '_' + config.spreadsheetId);
     if (cachedProgress) {

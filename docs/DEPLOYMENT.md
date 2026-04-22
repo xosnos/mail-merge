@@ -2,6 +2,17 @@
 
 This guide covers the necessary steps to deploy the UNAVSA Mail Merge tool as an internal Google Workspace Add-on for `unavsa.org`.
 
+## Phase 1: Create a Standalone Apps Script Project
+
+Because the Add-on is designed to be installed from the Workspace Marketplace and used across many spreadsheets, it MUST be deployed from a standalone script project, NOT a script bound to a specific Google Sheet.
+
+1. Navigate to [script.google.com](https://script.google.com/).
+2. Click **New project** in the top left.
+3. Name the project "UNAVSA Mail Merge Add-on".
+4. Copy the new **Script ID** from the Project Settings (gear icon).
+5. Update the `.clasp.json` file in your local repository with this new `scriptId`.
+6. Run `clasp push` to upload the add-on code to the new standalone project.
+
 ## Phase 2: Google Cloud Project (GCP) Configuration
 
 These steps must be performed by a Google Workspace Admin with access to Google Cloud.

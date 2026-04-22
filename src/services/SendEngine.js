@@ -379,8 +379,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       };
     }
 
-    // Initialize progress Cache
-    const cache = CacheService.getDocumentCache();
+    // Initialize progress Cache (user-scoped to prevent cross-user collisions)
+    const cache = CacheService.getUserCache();
     cache.put(
       CONFIG.KEYS.PROGRESS_CACHE,
       JSON.stringify({ current: 0, total: totalToSend, status: 'sending' }),
@@ -452,7 +452,9 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         } else if (cellValue && !String(cellValue).startsWith('#')) {
           try {
             richTextValue = sheet.getRange(j + 2, attachmentColIndex + 1).getRichTextValue();
-          } catch (e) {}
+          } catch (e) {
+            console.warn('Prefetch: getRichTextValue failed for row ' + (j + 2), e);
+          }
         }
         const ids = extractDriveFileIds_(cellValue, richTextValue);
         ids.forEach((id) => allFileIds.add(id));
@@ -473,10 +475,13 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i));
         setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
 
-        ScriptApp.newTrigger('resumeBatchSend')
+        // Clean up before creating to avoid trigger quota exhaustion
+        cleanupOrphanedTriggers();
+        const trigger = ScriptApp.newTrigger('resumeBatchSend')
           .timeBased()
-          .after(60 * 60 * 1000) // resume in 1 hour due to Add-on limitations
+          .after(60 * 1000) // resume in ~1 minute
           .create();
+        mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
 
         cache.put(
           CONFIG.KEYS.PROGRESS_CACHE,
@@ -486,7 +491,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
         return {
           success: true,
-          message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 hour (timeout management).`,
+          message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 minute (timeout management).`,
           sentCount: sentCount,
           total: totalToSend,
           status: 'paused'
@@ -664,8 +669,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     }
 
     // Clean up resumption state on completion
-    PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
-    PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.BATCH_CONFIG);
+    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
+    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.BATCH_CONFIG);
 
     // Update progress on completion
     cache.put(
@@ -692,9 +697,13 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
  * Invoked by a time-driven trigger to resume a batch that was paused due to
  * the Apps Script 6-minute execution limit.
  * Reads saved state from PropertiesService, deletes the trigger, and continues.
+ * @param {Object} e Trigger event object
  */
-function resumeBatchSend() {
+function resumeBatchSend(e) {
   try {
+    const spreadsheetId = getSpreadsheetIdFromTrigger(e);
+    if (e && e.triggerUid) deleteTriggerMapping(e.triggerUid);
+
     // Delete the trigger that called us so it doesn't re-fire
     if (typeof deleteTriggerByHandler === 'function') {
       deleteTriggerByHandler('resumeBatchSend');
@@ -708,8 +717,8 @@ function resumeBatchSend() {
     }
 
     // Retrieve saved state
-    const lastRow = getProperty(CONFIG.KEYS.LAST_PROCESSED_ROW);
-    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG);
+    const lastRow = getProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, spreadsheetId);
+    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId);
 
     if (!lastRow || !configJson) {
       console.log('resumeBatchSend: No saved state found. Nothing to resume.');
@@ -733,7 +742,7 @@ function resumeBatchSend() {
  * @returns {Object} JSON object with current, total, and status
  */
 function getMergeProgress() {
-  const cache = CacheService.getDocumentCache();
+  const cache = CacheService.getUserCache();
   const progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
   if (!progressStr) {
     return { current: 0, total: 0, status: 'idle' };
@@ -781,8 +790,21 @@ function startBackgroundBatchEmails(config) {
       });
     }
 
+    // Guard against trigger quota exhaustion (limit: 20 per user per script)
+    if (ScriptApp.getProjectTriggers().length >= 18) {
+      cleanupOrphanedTriggers();
+      if (ScriptApp.getProjectTriggers().length >= 18) {
+        return {
+          success: false,
+          message:
+            'Too many background tasks are already queued. Please wait a few minutes for the current batch to finish, then try again.'
+        };
+      }
+    }
+
     // Create the trigger to fire almost immediately (1 millisecond)
-    ScriptApp.newTrigger('runBackgroundBatchSend').timeBased().after(1).create();
+    const trigger = ScriptApp.newTrigger('runBackgroundBatchSend').timeBased().after(1).create();
+    mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
 
     return {
       success: true,
@@ -795,9 +817,13 @@ function startBackgroundBatchEmails(config) {
 
 /**
  * Trigger handler for the immediate background batch send.
+ * @param {Object} e Trigger event object
  */
-function runBackgroundBatchSend() {
+function runBackgroundBatchSend(e) {
   try {
+    const spreadsheetId = getSpreadsheetIdFromTrigger(e);
+    if (e && e.triggerUid) deleteTriggerMapping(e.triggerUid);
+
     // Delete the trigger that called us
     if (typeof deleteTriggerByHandler === 'function') {
       deleteTriggerByHandler('runBackgroundBatchSend');
@@ -811,7 +837,7 @@ function runBackgroundBatchSend() {
     }
 
     // Retrieve saved configuration
-    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG);
+    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId);
     if (!configJson) {
       console.log('runBackgroundBatchSend: No config found.');
       return;
@@ -880,8 +906,21 @@ function scheduleBatchEmails(config) {
       setProperty(CONFIG.KEYS.USER_TIMEZONE, config.userTimezone);
     }
 
+    // Guard against trigger quota exhaustion (limit: 20 per user per script)
+    if (ScriptApp.getProjectTriggers().length >= 18) {
+      cleanupOrphanedTriggers();
+      if (ScriptApp.getProjectTriggers().length >= 18) {
+        return {
+          success: false,
+          message:
+            'Too many background tasks are already queued. Please wait a few minutes for the current batch to finish, then try again.'
+        };
+      }
+    }
+
     // Create the trigger
-    ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(new Date(scheduleTime)).create();
+    const trigger = ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(new Date(scheduleTime)).create();
+    mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
 
     // Format the time in the user's local timezone for the confirmation toast
     const displayTz =
@@ -924,7 +963,7 @@ function startScheduledBatchSend() {
     }
 
     const config = JSON.parse(configJson);
-    PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
+    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG);
 
     console.log('startScheduledBatchSend: Starting scheduled batch send.');
     const result = sendBatchEmails(config, 0);

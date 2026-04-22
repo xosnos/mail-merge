@@ -501,10 +501,13 @@ function checkReplies(startTime = Date.now()) {
 /**
  * Unified analytics scanner. Runs bounces then replies.
  * Called by both the sidebar "Refresh Analytics" button and the background trigger.
+ * @param {Object} [e] Trigger event object
  * @returns {Object} { success: boolean, message: string }
  */
-function runAnalyticsScanner() {
+function runAnalyticsScanner(e) {
   try {
+    setTriggerSpreadsheetIdContext(e);
+
     const bounceResult = checkBounces();
     const replyResult = checkReplies();
 
@@ -542,6 +545,7 @@ function setupAnalyticsTrigger() {
     removeAnalyticsTrigger();
 
     const trigger = ScriptApp.newTrigger('runAnalyticsScanner').timeBased().everyHours(3).create();
+    mapTriggerToSpreadsheet(trigger);
 
     setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId());
 
@@ -566,6 +570,9 @@ function setupAnalyticsTrigger() {
  */
 function removeAnalyticsTrigger() {
   try {
+    const triggerId = getProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID);
+    if (triggerId) deleteTriggerMapping(triggerId);
+
     if (typeof deleteTriggerByHandler === 'function') {
       deleteTriggerByHandler('runAnalyticsScanner');
     } else {
@@ -577,7 +584,7 @@ function removeAnalyticsTrigger() {
       });
     }
 
-    PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID);
+    PropertiesService.getUserProperties().deleteProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID);
 
     return { success: true, message: 'Background scanning disabled.' };
   } catch (err) {

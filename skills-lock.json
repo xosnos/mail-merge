@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "gws-script": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "computedHash": "799025ea93e295538fdecdff445dc2c054c388e1ecaebafeb3195fb5607b2f97"
+    },
+    "gws-script-push": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "computedHash": "e4103e5221d03fd90d77b1ce3864dafaa8f104de3420187d9aaf566fe1f83b0e"
+    }
+  }
+}

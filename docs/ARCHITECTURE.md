@@ -53,9 +53,10 @@ The user interface is built using the Google Workspace Add-on `CardService`. Unl
 
 ### 1.2 State Management (`src/core/Config.js`)
 
-Because Google Apps Script executions are stateless and have strict time limits, state must be persisted across executions.
+Because Google Apps Script executions are stateless and have strict time limits, state must be persisted across executions. To support running as a standalone Workspace Add-on across multiple spreadsheets for the same user without state collision, all properties are stored using **composite keys** (e.g., `${spreadsheetId}_BATCH_CONFIG`).
 
-- **PropertiesService**: Used to store long-term campaign configuration (Selected Draft ID, Sender Alias, Reply-To, Scheduled Time).
+- **PropertiesService**: Used to store long-term campaign configuration (Selected Draft ID, Sender Alias, Reply-To, Scheduled Time) scoped to the user and the specific spreadsheet.
+- **Trigger Context Mapping**: Background time-driven triggers execute without an active UI context (no active spreadsheet). To resolve this, the system maps `triggerUid` to the originating `spreadsheetId` in `UserProperties` when a trigger is created, allowing background tasks to accurately load their isolated composite-keyed state.
 - **CacheService**: Used for short-term, high-frequency state, specifically caching the progress of a running batch so the UI can poll and display a progress bar.
 - **Dead-Letter Logging**: Errors from asynchronous background processes (like time-driven triggers) are sent to a hidden `_Logs` sheet tab via `src/utils/ErrorLib.js`.
 
@@ -74,8 +75,8 @@ The system uses the Advanced Gmail API (`Gmail.Users.Messages.send`) rather than
 While opens are tracked instantly via the Central Tracker, replies and bounces are processed asynchronously by the sender's account.
 
 - **Inbox Scanner**: A time-driven trigger runs every 3 hours to scan the user's Gmail inbox.
-- **Bounces**: Searches for `from:mailer-daemon` and parses the Non-Delivery Report (NDR) for the original `X-Campaign-ID` and `X-Row-ID` custom headers, falling back to regex email matching.
-- **Replies**: Searches for recent inbox messages (`in:inbox newer_than:7d -from:me`) and checks for the `X-Campaign-ID` or `X-Row-ID` headers to match replies from recipients in the sheet.
+- **Bounces**: Searches for `from:mailer-daemon` and parses the Non-Delivery Report (NDR) for the original `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` custom headers, falling back to regex email matching.
+- **Replies**: Searches for recent inbox messages (`in:inbox newer_than:7d -from:me`) and checks for the `X-Campaign-ID`, `X-Row-ID`, or `X-Tracking-ID` headers to match replies from recipients in the sheet.
 - **Status Updates**: The script updates the "Merge Status" column in the original Google Sheet.
 
 ### 1.5 Gmail API Helpers (`src/services/GmailService.js`)

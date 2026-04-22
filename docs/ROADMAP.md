@@ -26,7 +26,7 @@ This phase handles reading drafts and preparing the message content.
    - Write a regex utility (e.g., `/\{\{(.*?)\}\}/g`) to scan the active draft’s Subject, HTML Body, Plain Text Body, CC, and BCC fields.
    - Write a validation function to compare the extracted `{{variables}}` against the current Sheet's column headers (Row 1) and alert the user in the UI if there are missing columns.
 
-### Phase 3: The Core Send & Merge Engine (Including Test Emails)
+### Phase 3: The Core Send & Merge Engine (Including Test Emails) (Completed)
 
 This phase is the heavy lifting of mapping data and dispatching emails.
 
@@ -59,7 +59,7 @@ This phase requires setting up external listeners and inbox parsers.
 3. **Automate the Scanner:**
    - Create a time-driven trigger (e.g., every 1-2 hours) to run the Inbox Scanner in the background so the Sheet updates automatically.
 
-### Phase 5: Advanced Automation & Production Readiness
+### Phase 5: Advanced Automation & Production Readiness (Partially Completed)
 
 This phase hardens the tool for enterprise use and adds scheduling.
 

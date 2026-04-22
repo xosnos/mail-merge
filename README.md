@@ -5,6 +5,8 @@ A powerful, open-source Google Sheets add-on for personalized mail merges with a
 ## 🚀 Key Features
 
 - **Personalized Emails**: Use `{{Variable Name}}` in your Gmail drafts to automatically pull data from your spreadsheet.
+- **Dynamic CC & BCC**: Add "CC" or "BCC" columns to dynamically copy different people on each row's email.
+- **Personalized Attachments**: Include an "Attachment" column with Google Drive links to automatically fetch and attach specific files per recipient.
 - **Open Tracking**: Real-time open tracking using a centralized tracking pixel. No extra setup required per user!
 - **Scheduling**: Schedule your mail merge to run at a future date and time.
 - **Test Emails**: Send a test email to yourself to verify variables and formatting before running a full campaign.
@@ -44,7 +46,3 @@ Detailed guides and architectural documentation are located in the `docs/` direc
 - This tool respects your data and only accesses the spreadsheet it's explicitly enabled for.
 - Open tracking uses a secure, HMAC-signed pixel to ensure your data is never exposed.
 - Scheduled merges are handled by secure, time-driven Google Apps Script triggers.
-
----
-
-Built with ❤️ for UNAVSA.
