@@ -21,6 +21,7 @@
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/script.external_request"
   ],
+  "urlFetchWhitelist": ["https://www.googleapis.com/drive/v3/files/"],
   "runtimeVersion": "V8",
   "webapp": {
     "executeAs": "USER_DEPLOYING",
