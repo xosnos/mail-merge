@@ -9,7 +9,6 @@
 function cleanupOrphanedTriggers(spreadsheetId) {
   try {
     const activeHandlers = [
-      'runBackgroundBatchSend',
       'startScheduledBatchSend',
       'resumeBatchSend',
       'runAnalyticsScanner'

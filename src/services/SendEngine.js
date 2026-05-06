@@ -1170,102 +1170,19 @@ function getMergeProgress() {
  */
 function startBackgroundBatchEmails(config) {
   try {
-    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers(config.spreadsheetId);
-
-    let sheet;
-    if (config.spreadsheetId && config.sheetName) {
-      sheet = SpreadsheetApp.openById(config.spreadsheetId).getSheetByName(config.sheetName);
-    } else {
-      sheet = SpreadsheetApp.getActiveSheet();
-    }
-
-    // Pre-flight validation
-    const validation = validateTemplate(config.draftId, sheet);
-    if (!validation.isValid) {
-      return {
-        success: false,
-        message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ')
-      };
-    }
-
-    // Save the config for the background run
+    // Save the config so resumeBatchSend can pick it up if the UI times out
     setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
 
-    // Clear any existing background triggers for immediate send
-    if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('runBackgroundBatchSend', config.spreadsheetId);
-    } else {
-      const triggers = ScriptApp.getProjectTriggers();
-      triggers.forEach((t) => {
-        if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
-          ScriptApp.deleteTrigger(t);
-        }
-      });
-    }
-
-    // Guard against trigger quota exhaustion (limit: 20 per user per script)
-    if (ScriptApp.getProjectTriggers().length >= 18) {
-      cleanupOrphanedTriggers(config.spreadsheetId);
-      if (ScriptApp.getProjectTriggers().length >= 18) {
-        return {
-          success: false,
-          message:
-            'Too many background tasks are already queued. Please wait a few minutes for the current batch to finish, then try again.'
-        };
-      }
-    }
-
-    // Create the trigger to fire almost immediately (1 millisecond)
-    const trigger = ScriptApp.newTrigger('runBackgroundBatchSend').timeBased().after(1).create();
-    mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
-
-    return {
-      success: true,
-      message: 'Batch sending started in the background. You can close this sidebar.'
-    };
+    // Run immediately in UI context (25s timeout guard inside sendBatchEmails
+    // will schedule a resumption trigger if the batch is too large)
+    const result = sendBatchEmails(config, 0, true);
+    return result;
   } catch (err) {
     return { success: false, message: err.message };
   }
 }
 
-/**
- * Trigger handler for the immediate background batch send.
- * @param {Object} e Trigger event object
- */
-function runBackgroundBatchSend(e) {
-  try {
-    const spreadsheetId = getSpreadsheetIdFromTrigger(e);
-    if (e && e.triggerUid) deleteTriggerMapping(e.triggerUid);
 
-    // Delete the trigger that called us
-    if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('runBackgroundBatchSend', spreadsheetId);
-    } else {
-      const triggers = ScriptApp.getProjectTriggers();
-      triggers.forEach((t) => {
-        if (t.getHandlerFunction() === 'runBackgroundBatchSend') {
-          ScriptApp.deleteTrigger(t);
-        }
-      });
-    }
-
-    // Retrieve saved configuration
-    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId);
-    if (!configJson) {
-      console.log('runBackgroundBatchSend: No config found.');
-      return;
-    }
-
-    const config = JSON.parse(configJson);
-
-    console.log('runBackgroundBatchSend: Starting background batch send.');
-    const result = sendBatchEmails(config, 0); // isUiContext defaults to false
-    console.log('runBackgroundBatchSend result: ' + JSON.stringify(result));
-  } catch (err) {
-    if (typeof ErrorLib !== 'undefined') ErrorLib.logError(err, 'runBackgroundBatchSend');
-    console.error('runBackgroundBatchSend crashed: ', err);
-  }
-}
 
 /**
  * Schedules a batch of emails to be sent at a future date and time.
