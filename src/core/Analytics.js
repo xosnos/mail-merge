@@ -91,7 +91,11 @@ function checkBounces(startTime = Date.now(), spreadsheetId, sheetName) {
     }
 
     // Search for recent bounce messages (cursor scoped to this tab)
-    let lastBounceTimeStr = getProperty(CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME, spreadsheetId, sheetName);
+    let lastBounceTimeStr = getProperty(
+      CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME,
+      spreadsheetId,
+      sheetName
+    );
     let lastBounceTime = lastBounceTimeStr ? parseInt(lastBounceTimeStr, 10) : 0;
 
     let searchQuery = 'from:mailer-daemon in:inbox newer_than:7d';
@@ -165,7 +169,12 @@ function checkBounces(startTime = Date.now(), spreadsheetId, sheetName) {
     }
 
     if (maxProcessedTime > lastBounceTime) {
-      setProperty(CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME, maxProcessedTime.toString(), spreadsheetId, sheetName);
+      setProperty(
+        CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME,
+        maxProcessedTime.toString(),
+        spreadsheetId,
+        sheetName
+      );
     }
 
     if (Object.keys(bouncedEmails).length === 0) {
@@ -340,7 +349,11 @@ function checkReplies(startTime = Date.now(), spreadsheetId, sheetName) {
     }
 
     // Search for recent replies in inbox (not sent by us)
-    let lastReplyTimeStr = getProperty(CONFIG.KEYS.LAST_REPLY_THREAD_TIME, spreadsheetId, sheetName);
+    let lastReplyTimeStr = getProperty(
+      CONFIG.KEYS.LAST_REPLY_THREAD_TIME,
+      spreadsheetId,
+      sheetName
+    );
     let lastReplyTime = lastReplyTimeStr ? parseInt(lastReplyTimeStr, 10) : 0;
 
     const campaignLabel = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL, spreadsheetId, sheetName);
@@ -486,7 +499,12 @@ function checkReplies(startTime = Date.now(), spreadsheetId, sheetName) {
     }
 
     if (maxProcessedTime > lastReplyTime) {
-      setProperty(CONFIG.KEYS.LAST_REPLY_THREAD_TIME, maxProcessedTime.toString(), spreadsheetId, sheetName);
+      setProperty(
+        CONFIG.KEYS.LAST_REPLY_THREAD_TIME,
+        maxProcessedTime.toString(),
+        spreadsheetId,
+        sheetName
+      );
     }
 
     return {

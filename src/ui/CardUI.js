@@ -143,11 +143,7 @@ function buildHomepageCard(e) {
         .setIcon(CardService.Icon.EMAIL)
     );
 
-    analyticsSection.addWidget(
-      CardService.newKeyValue()
-        .setTopLabel('Opened')
-        .setContent(openStr)
-    );
+    analyticsSection.addWidget(CardService.newKeyValue().setTopLabel('Opened').setContent(openStr));
 
     analyticsSection.addWidget(
       CardService.newKeyValue()
@@ -157,9 +153,7 @@ function buildHomepageCard(e) {
     );
 
     analyticsSection.addWidget(
-      CardService.newKeyValue()
-        .setTopLabel('Bounced')
-        .setContent(bounceStr)
+      CardService.newKeyValue().setTopLabel('Bounced').setContent(bounceStr)
     );
 
     builder.addSection(analyticsSection);
@@ -229,9 +223,7 @@ function buildHomepageCard(e) {
 
         if (progress.errors > 0) {
           progressSection.addWidget(
-            CardService.newKeyValue()
-              .setTopLabel('Errors')
-              .setContent(progress.errors.toString())
+            CardService.newKeyValue().setTopLabel('Errors').setContent(progress.errors.toString())
           );
         }
 

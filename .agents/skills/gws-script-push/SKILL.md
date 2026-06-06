@@ -1,14 +1,14 @@
 ---
 name: gws-script-push
-description: "Google Apps Script: Upload local files to an Apps Script project."
+description: 'Google Apps Script: Upload local files to an Apps Script project.'
 metadata:
   version: 0.22.5
   openclaw:
-    category: "productivity"
+    category: 'productivity'
     requires:
       bins:
         - gws
-    cliHelp: "gws script +push --help"
+    cliHelp: 'gws script +push --help'
 ---
 
 # script +push
@@ -25,10 +25,10 @@ gws script +push --script <ID>
 
 ## Flags
 
-| Flag | Required | Default | Description |
-|------|----------|---------|-------------|
-| `--script` | ✓ | — | Script Project ID |
-| `--dir` | — | — | Directory containing script files (defaults to current dir) |
+| Flag       | Required | Default | Description                                                 |
+| ---------- | -------- | ------- | ----------------------------------------------------------- |
+| `--script` | ✓        | —       | Script Project ID                                           |
+| `--dir`    | —        | —       | Directory containing script files (defaults to current dir) |
 
 ## Examples
 

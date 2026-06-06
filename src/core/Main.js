@@ -8,11 +8,7 @@
  */
 function cleanupOrphanedTriggers(spreadsheetId, sheetName) {
   try {
-    const activeHandlers = [
-      'startScheduledBatchSend',
-      'resumeBatchSend',
-      'runAnalyticsScanner'
-    ];
+    const activeHandlers = ['startScheduledBatchSend', 'resumeBatchSend', 'runAnalyticsScanner'];
     let targetSpreadsheetId = spreadsheetId || null;
     if (!targetSpreadsheetId) {
       try {
@@ -38,7 +34,11 @@ function cleanupOrphanedTriggers(spreadsheetId, sheetName) {
         typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
       const mappedSpreadsheetId = mapping ? mapping.spreadsheetId : null;
       const mappedSheetName = mapping ? mapping.sheetName : null;
-      if (targetSpreadsheetId && mappedSpreadsheetId && mappedSpreadsheetId !== targetSpreadsheetId) {
+      if (
+        targetSpreadsheetId &&
+        mappedSpreadsheetId &&
+        mappedSpreadsheetId !== targetSpreadsheetId
+      ) {
         return;
       }
       if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {
@@ -87,7 +87,11 @@ function deleteTriggerByHandler(handlerName, spreadsheetId, sheetName) {
         typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
       const mappedSpreadsheetId = mapping ? mapping.spreadsheetId : null;
       const mappedSheetName = mapping ? mapping.sheetName : null;
-      if (targetSpreadsheetId && mappedSpreadsheetId && mappedSpreadsheetId !== targetSpreadsheetId) {
+      if (
+        targetSpreadsheetId &&
+        mappedSpreadsheetId &&
+        mappedSpreadsheetId !== targetSpreadsheetId
+      ) {
         return;
       }
       if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {

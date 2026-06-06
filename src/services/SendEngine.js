@@ -244,9 +244,7 @@ function sendBurstRequests_(burstEntries, oauthToken) {
   let pending = burstEntries.map((entry, index) => ({ entry, index, attempt: 0 }));
 
   while (pending.length > 0) {
-    const requests = pending.map((item) =>
-      buildGmailSendRequest_(oauthToken, item.entry.raw)
-    );
+    const requests = pending.map((item) => buildGmailSendRequest_(oauthToken, item.entry.raw));
     const responses = callWithBackoff(() => UrlFetchApp.fetchAll(requests));
     const retryQueue = [];
 
@@ -1207,7 +1205,12 @@ function getMergeProgress() {
 function startBackgroundBatchEmails(config) {
   try {
     // Save the config so resumeBatchSend can pick it up if the UI times out (per tab)
-    setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), config.spreadsheetId, config.sheetName);
+    setProperty(
+      CONFIG.KEYS.BATCH_CONFIG,
+      JSON.stringify(config),
+      config.spreadsheetId,
+      config.sheetName
+    );
 
     // Run immediately in UI context (25s timeout guard inside sendBatchEmails
     // will schedule a resumption trigger if the batch is too large)
@@ -1217,8 +1220,6 @@ function startBackgroundBatchEmails(config) {
     return { success: false, message: err.message };
   }
 }
-
-
 
 /**
  * Schedules a batch of emails to be sent at a future date and time.
@@ -1254,7 +1255,12 @@ function scheduleBatchEmails(config) {
     }
 
     // Save the config for the scheduled run (scoped to this tab)
-    setProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, JSON.stringify(config), config.spreadsheetId, config.sheetName);
+    setProperty(
+      CONFIG.KEYS.SCHEDULED_BATCH_CONFIG,
+      JSON.stringify(config),
+      config.spreadsheetId,
+      config.sheetName
+    );
 
     // Clear only THIS tab's existing scheduled trigger, so scheduling one tab does
     // not cancel a scheduled send queued on another tab of the same spreadsheet.
@@ -1271,7 +1277,12 @@ function scheduleBatchEmails(config) {
 
     // Persist user timezone so it can be referenced later if needed
     if (config.userTimezone) {
-      setProperty(CONFIG.KEYS.USER_TIMEZONE, config.userTimezone, config.spreadsheetId, config.sheetName);
+      setProperty(
+        CONFIG.KEYS.USER_TIMEZONE,
+        config.userTimezone,
+        config.spreadsheetId,
+        config.sheetName
+      );
     }
 
     // Guard against trigger quota exhaustion (limit: 20 per user per script). The
@@ -1288,7 +1299,10 @@ function scheduleBatchEmails(config) {
     }
 
     // Create the trigger (mapped to this tab)
-    const trigger = ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(new Date(scheduleTime)).create();
+    const trigger = ScriptApp.newTrigger('startScheduledBatchSend')
+      .timeBased()
+      .at(new Date(scheduleTime))
+      .create();
     mapTriggerToSpreadsheet(trigger, config.spreadsheetId, config.sheetName);
 
     // Format the time in the user's local timezone for the confirmation toast
