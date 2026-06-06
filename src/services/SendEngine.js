@@ -611,17 +611,20 @@ function sendTestEmail(config) {
  * @returns {Object} {success: boolean, message: string}
  */
 function sendBatchEmails(config, startRow, isUiContext = false) {
+  let lock = null;
   try {
     if ((!startRow || startRow === 0) && typeof cleanupOrphanedTriggers === 'function') {
-      cleanupOrphanedTriggers(config.spreadsheetId);
+      cleanupOrphanedTriggers(config.spreadsheetId, config.sheetName);
     }
 
-    // Save state in case of UI reload
-    setProperty(CONFIG.KEYS.SELECTED_DRAFT_ID, config.draftId);
-    setProperty(CONFIG.KEYS.SENDER_NAME, config.senderName || '');
-    setProperty(CONFIG.KEYS.SENDER_ALIAS, config.senderAlias || '');
-    setProperty(CONFIG.KEYS.REPLY_TO, config.replyTo || '');
-    setProperty(CONFIG.KEYS.EMAIL_COLUMN, config.emailColumn);
+    // Save state in case of UI reload (scoped to this spreadsheet + tab)
+    const ssId = config.spreadsheetId;
+    const tabName = config.sheetName;
+    setProperty(CONFIG.KEYS.SELECTED_DRAFT_ID, config.draftId, ssId, tabName);
+    setProperty(CONFIG.KEYS.SENDER_NAME, config.senderName || '', ssId, tabName);
+    setProperty(CONFIG.KEYS.SENDER_ALIAS, config.senderAlias || '', ssId, tabName);
+    setProperty(CONFIG.KEYS.REPLY_TO, config.replyTo || '', ssId, tabName);
+    setProperty(CONFIG.KEYS.EMAIL_COLUMN, config.emailColumn, ssId, tabName);
 
     // Check quota
     const quota = MailApp.getRemainingDailyQuota();
@@ -641,6 +644,33 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) throw new Error('No data available to send.');
+
+    // Serialize sends against the same TAB so two users cannot both claim the same
+    // unsent rows and double-send, while sends on other tabs/spreadsheets run
+    // concurrently. Released in the finally block below.
+    const lockSsId = config.spreadsheetId || spreadsheet.getId();
+    const lockTab = config.sheetName || sheet.getName();
+    lock = acquireSendLock_(lockSsId, lockTab);
+    if (!lock) {
+      if (isUiContext) {
+        return {
+          success: false,
+          message: 'A send is already running for this tab — please wait a moment and refresh.'
+        };
+      }
+      // Background/scheduled context: don't drop the batch. Persist resume state and
+      // retry shortly so the remaining rows are not lost to lock contention.
+      setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(startRow || 0), lockSsId, lockTab);
+      setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), lockSsId, lockTab);
+      cleanupOrphanedTriggers(lockSsId, lockTab);
+      const retryTrigger = ScriptApp.newTrigger('resumeBatchSend').timeBased().after(1).create();
+      mapTriggerToSpreadsheet(retryTrigger, lockSsId, lockTab);
+      return {
+        success: true,
+        message: 'Another send is in progress for this tab; will retry shortly.',
+        status: 'paused'
+      };
+    }
 
     // Pre-flight validation
     const validation = validateTemplate(config.draftId, sheet);
@@ -745,13 +775,13 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     let campaignLabelId = null;
 
     if (startRow && startRow > 0) {
-      campaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID);
-      campaignLabelId = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL_ID);
+      campaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID, lockSsId, lockTab);
+      campaignLabelId = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL_ID, lockSsId, lockTab);
     }
     if (!campaignId) {
       const currentSheetId = config.spreadsheetId || spreadsheet.getId();
       campaignId = generateCampaignId_(currentSheetId);
-      setProperty(CONFIG.KEYS.CAMPAIGN_ID, campaignId);
+      setProperty(CONFIG.KEYS.CAMPAIGN_ID, campaignId, lockSsId, lockTab);
 
       // Setup Campaign Label based on subject
       const originalSubject = msg.getSubject() || 'Untitled Campaign';
@@ -769,8 +799,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
           );
           campaignLabelId = createdLabel.id;
         }
-        setProperty(CONFIG.KEYS.CAMPAIGN_LABEL, labelName);
-        setProperty(CONFIG.KEYS.CAMPAIGN_LABEL_ID, campaignLabelId);
+        setProperty(CONFIG.KEYS.CAMPAIGN_LABEL, labelName, lockSsId, lockTab);
+        setProperty(CONFIG.KEYS.CAMPAIGN_LABEL_ID, campaignLabelId, lockSsId, lockTab);
       } catch (e) {
         console.error('Failed to setup campaign label', e);
       }
@@ -894,17 +924,17 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       if (Date.now() - executionStart > timeoutThreshold) {
         flushBurst();
 
-        // Save state and schedule continuation
-        setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i));
-        setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
+        // Save state and schedule continuation (scoped to this tab)
+        setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i), lockSsId, lockTab);
+        setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), lockSsId, lockTab);
 
         // Clean up before creating to avoid trigger quota exhaustion
-        cleanupOrphanedTriggers(config.spreadsheetId || spreadsheet.getId());
+        cleanupOrphanedTriggers(lockSsId, lockTab);
         const trigger = ScriptApp.newTrigger('resumeBatchSend')
           .timeBased()
-          .after(60 * 1000) // resume in ~1 minute
+          .after(1) // resume as soon as Apps Script can schedule it
           .create();
-        mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
+        mapTriggerToSpreadsheet(trigger, lockSsId, lockTab);
 
         cache.put(
           CONFIG.KEYS.PROGRESS_CACHE,
@@ -914,7 +944,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
         return {
           success: true,
-          message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 minute (timeout management).`,
+          message: `Sent ${sentCount} emails so far. The rest is continuing in the background now.`,
           sentCount: sentCount,
           total: totalToSend,
           status: 'paused'
@@ -1048,15 +1078,15 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       ) {
         flushBurst();
         if (Date.now() - executionStart > timeoutThreshold && i < data.length - 1) {
-          setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i + 1));
-          setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
+          setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i + 1), lockSsId, lockTab);
+          setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), lockSsId, lockTab);
 
-          cleanupOrphanedTriggers(config.spreadsheetId || spreadsheet.getId());
+          cleanupOrphanedTriggers(lockSsId, lockTab);
           const trigger = ScriptApp.newTrigger('resumeBatchSend')
             .timeBased()
-            .after(60 * 1000)
+            .after(1) // resume as soon as Apps Script can schedule it
             .create();
-          mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
+          mapTriggerToSpreadsheet(trigger, lockSsId, lockTab);
 
           cache.put(
             CONFIG.KEYS.PROGRESS_CACHE,
@@ -1066,7 +1096,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
           return {
             success: true,
-            message: `Sent ${sentCount} emails so far. Batch will resume automatically in ~1 minute (timeout management).`,
+            message: `Sent ${sentCount} emails so far. The rest is continuing in the background now.`,
             sentCount: sentCount,
             total: totalToSend,
             status: 'paused'
@@ -1077,12 +1107,12 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     flushBurst();
 
-    // Clean up resumption state on completion
+    // Clean up resumption state on completion (scoped to this tab)
     PropertiesService.getUserProperties().deleteProperty(
-      _getCompositeKey(CONFIG.KEYS.LAST_PROCESSED_ROW, config.spreadsheetId || spreadsheet.getId())
+      _getCompositeKey(CONFIG.KEYS.LAST_PROCESSED_ROW, lockSsId, lockTab)
     );
     PropertiesService.getUserProperties().deleteProperty(
-      _getCompositeKey(CONFIG.KEYS.BATCH_CONFIG, config.spreadsheetId || spreadsheet.getId())
+      _getCompositeKey(CONFIG.KEYS.BATCH_CONFIG, lockSsId, lockTab)
     );
 
     // Update progress on completion
@@ -1092,8 +1122,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       600
     );
 
-    // Enable background scanning since toggle is removed
-    setupAnalyticsTrigger();
+    // Register this tab and (re)enable the per-spreadsheet background analytics scanner.
+    setupAnalyticsTrigger(lockSsId, lockTab);
 
     return {
       success: true,
@@ -1103,6 +1133,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     };
   } catch (err) {
     return { success: false, message: err.message };
+  } finally {
+    if (lock) releaseSendLock_(lock);
   }
 }
 
@@ -1114,12 +1146,16 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
  */
 function resumeBatchSend(e) {
   try {
+    // Resolve and pin the originating spreadsheet + tab so state scoping matches the
+    // tab that paused this batch.
+    setTriggerSpreadsheetIdContext(e);
     const spreadsheetId = getSpreadsheetIdFromTrigger(e);
+    const sheetName = getSheetNameFromTrigger(e);
     if (e && e.triggerUid) deleteTriggerMapping(e.triggerUid);
 
-    // Delete the trigger that called us so it doesn't re-fire
+    // Delete the trigger that called us so it doesn't re-fire (this tab only)
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('resumeBatchSend', spreadsheetId);
+      deleteTriggerByHandler('resumeBatchSend', spreadsheetId, sheetName);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -1129,9 +1165,9 @@ function resumeBatchSend(e) {
       });
     }
 
-    // Retrieve saved state
-    const lastRow = getProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, spreadsheetId);
-    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId);
+    // Retrieve saved state (scoped to this tab)
+    const lastRow = getProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, spreadsheetId, sheetName);
+    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
 
     if (!lastRow || !configJson) {
       console.log('resumeBatchSend: No saved state found. Nothing to resume.');
@@ -1170,8 +1206,8 @@ function getMergeProgress() {
  */
 function startBackgroundBatchEmails(config) {
   try {
-    // Save the config so resumeBatchSend can pick it up if the UI times out
-    setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config));
+    // Save the config so resumeBatchSend can pick it up if the UI times out (per tab)
+    setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), config.spreadsheetId, config.sheetName);
 
     // Run immediately in UI context (25s timeout guard inside sendBatchEmails
     // will schedule a resumption trigger if the batch is too large)
@@ -1191,7 +1227,8 @@ function startBackgroundBatchEmails(config) {
  */
 function scheduleBatchEmails(config) {
   try {
-    if (typeof cleanupOrphanedTriggers === 'function') cleanupOrphanedTriggers(config.spreadsheetId);
+    if (typeof cleanupOrphanedTriggers === 'function')
+      cleanupOrphanedTriggers(config.spreadsheetId, config.sheetName);
 
     const scheduleTime = new Date(config.scheduleDate).getTime();
     const now = Date.now();
@@ -1216,12 +1253,13 @@ function scheduleBatchEmails(config) {
       };
     }
 
-    // Save the config for the scheduled run
-    setProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, JSON.stringify(config));
+    // Save the config for the scheduled run (scoped to this tab)
+    setProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, JSON.stringify(config), config.spreadsheetId, config.sheetName);
 
-    // Clear any existing scheduled triggers just in case (single campaign assumption)
+    // Clear only THIS tab's existing scheduled trigger, so scheduling one tab does
+    // not cancel a scheduled send queued on another tab of the same spreadsheet.
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('startScheduledBatchSend', config.spreadsheetId);
+      deleteTriggerByHandler('startScheduledBatchSend', config.spreadsheetId, config.sheetName);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -1233,10 +1271,11 @@ function scheduleBatchEmails(config) {
 
     // Persist user timezone so it can be referenced later if needed
     if (config.userTimezone) {
-      setProperty(CONFIG.KEYS.USER_TIMEZONE, config.userTimezone);
+      setProperty(CONFIG.KEYS.USER_TIMEZONE, config.userTimezone, config.spreadsheetId, config.sheetName);
     }
 
-    // Guard against trigger quota exhaustion (limit: 20 per user per script)
+    // Guard against trigger quota exhaustion (limit: 20 per user per script). The
+    // cleanup here is intentionally broad (all tabs) since it is about total count.
     if (ScriptApp.getProjectTriggers().length >= 18) {
       cleanupOrphanedTriggers(config.spreadsheetId);
       if (ScriptApp.getProjectTriggers().length >= 18) {
@@ -1248,9 +1287,9 @@ function scheduleBatchEmails(config) {
       }
     }
 
-    // Create the trigger
+    // Create the trigger (mapped to this tab)
     const trigger = ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(new Date(scheduleTime)).create();
-    mapTriggerToSpreadsheet(trigger, config.spreadsheetId);
+    mapTriggerToSpreadsheet(trigger, config.spreadsheetId, config.sheetName);
 
     // Format the time in the user's local timezone for the confirmation toast
     const displayTz =
@@ -1273,12 +1312,15 @@ function scheduleBatchEmails(config) {
  */
 function startScheduledBatchSend(e) {
   try {
+    // Pin the originating spreadsheet + tab so scheduled state resolves correctly.
+    setTriggerSpreadsheetIdContext(e);
     const spreadsheetId = getSpreadsheetIdFromTrigger(e);
+    const sheetName = getSheetNameFromTrigger(e);
     if (e && e.triggerUid) deleteTriggerMapping(e.triggerUid);
 
-    // Delete the trigger that called us
+    // Delete the trigger that called us (this tab only)
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId);
+      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -1288,8 +1330,8 @@ function startScheduledBatchSend(e) {
       });
     }
 
-    // Retrieve saved configuration
-    const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId);
+    // Retrieve saved configuration (scoped to this tab)
+    const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId, sheetName);
     if (!configJson) {
       console.log('startScheduledBatchSend: No scheduled config found.');
       return;
@@ -1297,7 +1339,7 @@ function startScheduledBatchSend(e) {
 
     const config = JSON.parse(configJson);
     PropertiesService.getUserProperties().deleteProperty(
-      _getCompositeKey(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId)
+      _getCompositeKey(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId, sheetName)
     );
 
     console.log('startScheduledBatchSend: Starting scheduled batch send.');

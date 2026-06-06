@@ -6,7 +6,7 @@
  * Cleans up orphaned time-driven triggers for this project.
  * Limits the number of triggers for background functions to prevent hitting quota limits.
  */
-function cleanupOrphanedTriggers(spreadsheetId) {
+function cleanupOrphanedTriggers(spreadsheetId, sheetName) {
   try {
     const activeHandlers = [
       'startScheduledBatchSend',
@@ -22,6 +22,9 @@ function cleanupOrphanedTriggers(spreadsheetId) {
         // Ignore missing spreadsheet context.
       }
     }
+    // Only restrict to a tab when one is explicitly given; otherwise clean every tab
+    // of the spreadsheet (preserves the broad cleanup callers that pass no tab).
+    const targetSheetName = sheetName || null;
 
     const deletedTriggerIds = {};
     const maybeDeleteTrigger = (trigger) => {
@@ -31,9 +34,14 @@ function cleanupOrphanedTriggers(spreadsheetId) {
       const handler = trigger.getHandlerFunction();
       if (!activeHandlers.includes(handler)) return;
 
-      const mappedSpreadsheetId =
+      const mapping =
         typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
+      const mappedSpreadsheetId = mapping ? mapping.spreadsheetId : null;
+      const mappedSheetName = mapping ? mapping.sheetName : null;
       if (targetSpreadsheetId && mappedSpreadsheetId && mappedSpreadsheetId !== targetSpreadsheetId) {
+        return;
+      }
+      if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {
         return;
       }
 
@@ -57,7 +65,7 @@ function cleanupOrphanedTriggers(spreadsheetId) {
   }
 }
 
-function deleteTriggerByHandler(handlerName, spreadsheetId) {
+function deleteTriggerByHandler(handlerName, spreadsheetId, sheetName) {
   try {
     let targetSpreadsheetId = spreadsheetId || null;
     if (!targetSpreadsheetId) {
@@ -68,15 +76,21 @@ function deleteTriggerByHandler(handlerName, spreadsheetId) {
         // Ignore missing spreadsheet context.
       }
     }
+    const targetSheetName = sheetName || null;
 
     const deletedTriggerIds = {};
     const maybeDeleteTrigger = (trigger) => {
       if (!trigger || deletedTriggerIds[trigger.getUniqueId()]) return;
       if (trigger.getHandlerFunction() !== handlerName) return;
 
-      const mappedSpreadsheetId =
+      const mapping =
         typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
+      const mappedSpreadsheetId = mapping ? mapping.spreadsheetId : null;
+      const mappedSheetName = mapping ? mapping.sheetName : null;
       if (targetSpreadsheetId && mappedSpreadsheetId && mappedSpreadsheetId !== targetSpreadsheetId) {
+        return;
+      }
+      if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {
         return;
       }
 
