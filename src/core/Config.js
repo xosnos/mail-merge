@@ -20,14 +20,13 @@ const CONFIG = {
     CAMPAIGN_LABEL_ID: 'YAMM_CLONE_CAMPAIGN_LABEL_ID',
     LAST_PROCESSED_ROW: 'YAMM_CLONE_LAST_PROCESSED_ROW',
     BATCH_CONFIG: 'YAMM_CLONE_BATCH_CONFIG',
-    SCHEDULED_BATCH_CONFIG: 'YAMM_CLONE_SCHEDULED_BATCH_CONFIG',
     ANALYTICS_TRIGGER_ID: 'YAMM_CLONE_ANALYTICS_TRIGGER_ID',
     ANALYTICS_SPREADSHEET_ID: 'YAMM_CLONE_ANALYTICS_SPREADSHEET_ID',
     ANALYTICS_SHEET_NAME: 'YAMM_CLONE_ANALYTICS_SHEET_NAME',
     PROGRESS_CACHE: 'YAMM_CLONE_PROGRESS',
     LAST_BOUNCE_THREAD_TIME: 'YAMM_CLONE_LAST_BOUNCE_THREAD_TIME',
     LAST_REPLY_THREAD_TIME: 'YAMM_CLONE_LAST_REPLY_THREAD_TIME',
-    USER_TIMEZONE: 'YAMM_CLONE_USER_TIMEZONE'
+    CAMPAIGN_START_TIME: 'YAMM_CLONE_CAMPAIGN_START_TIME'
   },
   TRACKING: {
     get CENTRAL_URL() {
@@ -91,7 +90,7 @@ function setTriggerSpreadsheetIdContext(e) {
  */
 function _getCompositeKey(key, spreadsheetId, sheetName) {
   let id = spreadsheetId || _activeTriggerSpreadsheetId;
-  let tab = sheetName || _activeTriggerSheetName;
+  let tab = sheetName !== undefined && sheetName !== null ? sheetName : _activeTriggerSheetName;
   if (!id || tab === undefined || tab === null) {
     try {
       if (!id) {
@@ -206,24 +205,16 @@ const SEND_LOCK_STALE_MS = 7 * 60 * 1000;
  * @returns {{store: GoogleAppsScript.Properties.Properties, isDoc: boolean}}
  */
 function _getSendMarkerStore_() {
-  let docProps;
-  try {
-    docProps = PropertiesService.getDocumentProperties();
-  } catch (e) {
-    docProps = null;
-  }
-  if (docProps) return { store: docProps, isDoc: true };
   return { store: PropertiesService.getScriptProperties(), isDoc: false };
 }
 
 /**
- * Builds the marker key for a given tab. When stored in DocumentProperties the
- * spreadsheet is already implied; in the ScriptProperties fallback the spreadsheet
- * ID must be part of the key to avoid cross-spreadsheet collisions.
+ * Builds the marker key for a given tab. Since we always use ScriptProperties,
+ * the spreadsheet ID must always be part of the key to avoid cross-spreadsheet collisions.
  */
 function _sendMarkerKey_(isDoc, spreadsheetId, sheetName) {
   const tab = sheetName || '';
-  return isDoc ? `SENDING_${tab}` : `SENDING_${spreadsheetId || ''}_${tab}`;
+  return `SENDING_${spreadsheetId || ''}_${tab}`;
 }
 
 /**
@@ -291,9 +282,7 @@ function acquireSendLock_(spreadsheetId, sheetName) {
 function releaseSendLock_(marker) {
   if (!marker) return;
   try {
-    const store = marker.isDoc
-      ? PropertiesService.getDocumentProperties()
-      : PropertiesService.getScriptProperties();
+    const store = PropertiesService.getScriptProperties();
     if (store) store.deleteProperty(marker.flagKey);
   } catch (e) {
     // Ignore; a stale marker self-expires via SEND_LOCK_STALE_MS.
@@ -320,6 +309,33 @@ function registerCampaignTab_(spreadsheetId, sheetName) {
   if (tabs.indexOf(sheetName) === -1) {
     tabs.push(sheetName);
     props.setProperty(key, JSON.stringify(tabs));
+  }
+}
+
+/**
+ * Unregisters a tab from having an active campaign, so when all campaigns on
+ * a spreadsheet expire (older than 7 days), the background analytics trigger is cleaned up.
+ * @param {string} spreadsheetId
+ * @param {string} sheetName
+ */
+function unregisterCampaignTab_(spreadsheetId, sheetName) {
+  if (!spreadsheetId || !sheetName) return;
+  const key = _getCompositeKey('YAMM_CLONE_CAMPAIGN_TABS', spreadsheetId, '');
+  const props = PropertiesService.getUserProperties();
+  let tabs;
+  try {
+    tabs = JSON.parse(props.getProperty(key) || '[]');
+  } catch (e) {
+    tabs = [];
+  }
+  const index = tabs.indexOf(sheetName);
+  if (index !== -1) {
+    tabs.splice(index, 1);
+    if (tabs.length === 0) {
+      props.deleteProperty(key);
+    } else {
+      props.setProperty(key, JSON.stringify(tabs));
+    }
   }
 }
 
@@ -359,7 +375,26 @@ function setProperty(key, value, spreadsheetId, sheetName) {
  */
 function getProperty(key, spreadsheetId, sheetName) {
   const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
-  return PropertiesService.getUserProperties().getProperty(compositeKey);
+  const val = PropertiesService.getUserProperties().getProperty(compositeKey);
+  if (val !== null && val !== undefined) {
+    return val;
+  }
+
+  // Legacy key fallback: check key without sheetName/tab scope (2-segment key).
+  let id = spreadsheetId || _activeTriggerSpreadsheetId;
+  if (!id) {
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) id = ss.getId();
+    } catch (e) {
+      // Ignore
+    }
+  }
+  if (id) {
+    const legacyKey = `${id}_${key}`;
+    return PropertiesService.getUserProperties().getProperty(legacyKey);
+  }
+  return null;
 }
 
 /**

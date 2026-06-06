@@ -16,8 +16,8 @@ This document outlines the current feature set of the UNAVSA Mail Merge tool com
 
 - **In-Sidebar Analytics Dashboard:**
   - _YAMM:_ The sidebar changes after a campaign is sent to show a live dashboard (often with a pie chart or percentage breakdown) of Open Rates, Bounce Rates, and Reply Rates.
-  - _Our Tool:_ We have implemented a native CardService dashboard section that displays total processed, along with counts and percentages for Opened, Replied, and Bounced.
-  - _Implementation Path:_ Achieved. Future enhancements could include visual charts if Google ever allows more robust HTML components in CardService, but current functionality meets parity for basic metrics.
+  - _Our Tool:_ Removed from the UI sidebar to keep the interface simple and fast. Bounces, opens, and replies are still fully tracked and updated directly in the spreadsheet's "Merge status" column.
+  - _Implementation Path:_ The background triggers and the tracking pixel handle spreadsheet updates; a sidebar-based metrics view can be restored from Git history if needed.
 
 ## 2. Advanced Tracking & Compliance Features
 
@@ -35,11 +35,10 @@ This document outlines the current feature set of the UNAVSA Mail Merge tool com
 
 - **Personalized Attachments (via Google Drive):**
   - _YAMM:_ You can have an "Attachment" column in your sheet containing Google Drive links. YAMM fetches the file and attaches it to that specific person's email.
-  - _Our Tool:_ We only attach files that are attached to the original Gmail draft (meaning everyone gets the same attachment).
-  - _Implementation Path:_ Update `src/services/SendEngine.js` to look for Drive URLs in an attachment column, fetch the `DriveApp.getFileById()` blobs, and pass them to the `MimeBuilder.js`.
+  - _Our Tool:_ Not supported. (The feature was implemented but subsequently removed because fetching individual Drive files row-by-row or in bulk caused execution timeouts and exceeded Google Apps Script limits).
+  - _Implementation Path:_ Only constant attachments added directly to the Gmail draft template are supported.
 
 - **Filter Rows / "Send to specific rows":**
   - _YAMM:_ You can use Google Sheets' native filter views to hide rows, and YAMM will only send to the visible rows.
-  - _Our Tool:_ This feature is now fully supported. Hidden or filtered rows in your spreadsheet are natively skipped by the Google Apps Script execution.
-  - _Implementation Path:_ Achieved. Using `sheet.isRowHiddenByFilter(row)` and `sheet.isRowHiddenByUser(row)`.
-    hieved. Using `sheet.isRowHiddenByFilter(row)` and `sheet.isRowHiddenByUser(row)`.
+  - _Our Tool:_ Fully supported. Hidden or filtered rows in your spreadsheet are natively skipped.
+  - _Implementation Path:_ Achieved using Google Sheets API (`Sheets.Spreadsheets.get()`) to fetch hidden/filtered row metadata in a single request, optimizing execution time to milliseconds.

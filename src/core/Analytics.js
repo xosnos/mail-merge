@@ -532,7 +532,10 @@ function runAnalyticsScanner(e) {
     // for its spreadsheet; a manual UI refresh scans just the active tab.
     let spreadsheetId = null;
     let tabs = [];
+    let isTriggerContext = false;
+
     if (e) {
+      isTriggerContext = true;
       spreadsheetId = getSpreadsheetIdFromTrigger(e);
       tabs = getCampaignTabs_(spreadsheetId);
       if (!tabs || tabs.length === 0) {
@@ -544,6 +547,39 @@ function runAnalyticsScanner(e) {
       spreadsheetId = ss ? ss.getId() : null;
       const sh = SpreadsheetApp.getActiveSheet();
       if (sh) tabs = [sh.getName()];
+    }
+
+    if (isTriggerContext && spreadsheetId && tabs.length > 0) {
+      const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+      const activeTabs = [];
+
+      tabs.forEach((tab) => {
+        const startVal = getProperty(CONFIG.KEYS.CAMPAIGN_START_TIME, spreadsheetId, tab);
+        if (startVal) {
+          const campaignStart = parseInt(startVal, 10);
+          if (!isNaN(campaignStart) && Date.now() - campaignStart > oneWeekMs) {
+            console.log(`Campaign on tab "${tab}" is older than 7 days. Unregistering analytics.`);
+            unregisterCampaignTab_(spreadsheetId, tab);
+            clearProperties(spreadsheetId, tab);
+            return;
+          }
+        }
+        activeTabs.push(tab);
+      });
+
+      tabs = activeTabs;
+
+      if (tabs.length === 0) {
+        console.log(
+          `No active campaign tabs left for spreadsheet ${spreadsheetId}. Removing analytics trigger.`
+        );
+        removeAnalyticsTrigger(spreadsheetId);
+        return { success: true, message: 'All campaigns are older than 7 days. Trigger removed.' };
+      }
+
+      if (tabs.length > 1) {
+        tabs = shuffleArray_(tabs);
+      }
     }
 
     if (!tabs || tabs.length === 0) {
@@ -658,22 +694,20 @@ function removeAnalyticsTrigger(spreadsheetId) {
 
 /**
  * Calculates campaign metrics based on the "Merge status" column.
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
  * @returns {Object} { total: number, sent: number, opened: number, replied: number, bounced: number }
  */
-function getCampaignMetrics() {
+function getCampaignMetrics(spreadsheetId, sheetName) {
   const metrics = { total: 0, sent: 0, opened: 0, replied: 0, bounced: 0, error: null };
   try {
     let spreadsheet;
     let sheet;
 
-    // Attempt to load the saved context for background execution
-    const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
-    const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
-
-    if (savedSpreadsheetId && savedSheetName) {
+    if (spreadsheetId && sheetName) {
       try {
-        spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
-        sheet = spreadsheet.getSheetByName(savedSheetName);
+        spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+        sheet = spreadsheet.getSheetByName(sheetName);
       } catch (e) {
         // Fallback below if the sheet was deleted or permissions changed
       }
@@ -722,4 +756,20 @@ function getCampaignMetrics() {
     metrics.error = err.message;
     return metrics;
   }
+}
+
+/**
+ * Fisher-Yates shuffle algorithm to randomize array elements.
+ * @param {Array} array
+ * @returns {Array} Shuffled copy of the array
+ */
+function shuffleArray_(array) {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = temp;
+  }
+  return arr;
 }

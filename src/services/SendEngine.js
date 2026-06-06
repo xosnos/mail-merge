@@ -11,16 +11,32 @@ const GMAIL_SEND_ENDPOINT = 'https://gmail.googleapis.com/gmail/v1/users/me/mess
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Pre-calculates hidden/filtered rows once so the hot send loop can stay in-memory.
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * Pre-calculates hidden/filtered rows once using Sheets API so it completes in milliseconds.
+ * @param {string} spreadsheetId
+ * @param {string} sheetName
  * @param {number} rowCount Number of data rows starting at sheet row 2
  * @returns {Array<boolean>} 0-based array aligned to the data rows
  */
-function buildHiddenRowMap_(sheet, rowCount) {
-  const hiddenRows = [];
-  for (let i = 0; i < rowCount; i++) {
-    const rowNumber = i + 2;
-    hiddenRows[i] = sheet.isRowHiddenByUser(rowNumber) || sheet.isRowHiddenByFilter(rowNumber);
+function buildHiddenRowMap_(spreadsheetId, sheetName, rowCount) {
+  const hiddenRows = new Array(rowCount).fill(false);
+  try {
+    const sheetData = Sheets.Spreadsheets.get(spreadsheetId, {
+      ranges: [sheetName],
+      fields: 'sheets/data/rowMetadata(hiddenByFilter,hiddenByUser)'
+    });
+
+    const rowMetadata = sheetData.sheets?.[0]?.data?.[0]?.rowMetadata;
+    if (rowMetadata && rowMetadata.length > 1) {
+      // Offset by 1 for the headers row (rowMetadata[0] is headers, rowMetadata[1] is row 2)
+      for (let i = 0; i < rowCount; i++) {
+        const meta = rowMetadata[i + 1];
+        if (meta && (meta.hiddenByFilter || meta.hiddenByUser)) {
+          hiddenRows[i] = true;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to fetch sheet metadata via Sheets API, falling back to all visible: ', e);
   }
   return hiddenRows;
 }
@@ -343,142 +359,6 @@ function applyCampaignLabelsToBurst_(sendResults, oauthToken, campaignLabelId) {
 }
 
 /**
- * Extracts Google Drive file IDs from plain text or rich text hyperlinks.
- * @param {string} cellValue The raw cell value
- * @param {GoogleAppsScript.Spreadsheet.RichTextValue} [richTextValue] Optional rich text value to extract hyperlinks
- * @returns {Array<string>} Array of file IDs
- */
-function extractDriveFileIds_(cellValue, richTextValue) {
-  const ids = new Set();
-
-  const extractId = (str) => {
-    if (!str) return null;
-    const match = str.match(/(?:id=|d\/|open\?id=)([-\w]{25,})/i);
-    if (match) return match[1];
-    const exactMatch = str.match(/^[-\w]{25,}$/);
-    if (exactMatch) return exactMatch[0];
-    const looseMatch = str.match(/[-\w]{25,}/);
-    if (looseMatch && (str.includes('drive.google.com') || str.includes('docs.google.com'))) {
-      return looseMatch[0];
-    }
-    return null;
-  };
-
-  if (richTextValue) {
-    const runs = richTextValue.getRuns();
-    runs.forEach((run) => {
-      const url = run.getLinkUrl();
-      if (url) {
-        const id = extractId(url);
-        if (id) ids.add(id);
-      }
-    });
-  }
-
-  if (cellValue) {
-    const parts = String(cellValue).split(',');
-    parts.forEach((part) => {
-      const id = extractId(part.trim());
-      if (id) ids.add(id);
-    });
-  }
-
-  return Array.from(ids);
-}
-
-/**
- * Parallel pre-fetches Google Drive files as Blobs given an array of unique IDs.
- * Utilizes UrlFetchApp.fetchAll for massive performance improvements.
- * @param {Array<string>} fileIds Array of unique Drive file IDs
- * @returns {Object} Map of fileId -> GoogleAppsScript.Base.Blob
- */
-function prefetchDriveAttachments_(fileIds) {
-  const prefetchMap = {};
-  if (!fileIds || fileIds.length === 0) return prefetchMap;
-
-  const token = ScriptApp.getOAuthToken();
-
-  // 1. Fetch Metadata in parallel
-  const metaRequests = fileIds.map((id) => ({
-    url: `https://www.googleapis.com/drive/v3/files/${id}?fields=name,mimeType`,
-    method: 'get',
-    headers: { Authorization: `Bearer ${token}` },
-    muteHttpExceptions: true
-  }));
-
-  const metaResponses = callWithBackoff(() => UrlFetchApp.fetchAll(metaRequests));
-
-  const validIds = [];
-  const metaDataMap = {};
-
-  metaResponses.forEach((res, index) => {
-    const id = fileIds[index];
-    if (res.getResponseCode() === 200) {
-      const metadata = JSON.parse(res.getContentText());
-      const mimeType = metadata.mimeType;
-
-      if (
-        mimeType === 'application/vnd.google-apps.folder' ||
-        mimeType === 'application/vnd.google-apps.shortcut' ||
-        mimeType.startsWith('application/vnd.google-apps.')
-      ) {
-        console.warn(`File ${id} is unsupported or a Google Doc (${mimeType})`);
-      } else {
-        validIds.push(id);
-        metaDataMap[id] = metadata;
-      }
-    } else {
-      console.warn(`Failed metadata fetch for ${id}: ${res.getContentText()}`);
-    }
-  });
-
-  if (validIds.length === 0) return prefetchMap;
-
-  // 2. Fetch Media in parallel
-  const mediaRequests = validIds.map((id) => ({
-    url: `https://www.googleapis.com/drive/v3/files/${id}?alt=media`,
-    method: 'get',
-    headers: { Authorization: `Bearer ${token}` },
-    muteHttpExceptions: true
-  }));
-
-  // Chunking to avoid URLFetchApp limits (safe max is generally ~30-50 concurrent requests depending on size)
-  const CHUNK_SIZE = 30;
-  for (let i = 0; i < validIds.length; i += CHUNK_SIZE) {
-    const chunkIds = validIds.slice(i, i + CHUNK_SIZE);
-    const chunkRequests = mediaRequests.slice(i, i + CHUNK_SIZE);
-
-    const mediaResponses = callWithBackoff(() => UrlFetchApp.fetchAll(chunkRequests));
-
-    mediaResponses.forEach((res, index) => {
-      const id = chunkIds[index];
-      if (res.getResponseCode() === 200) {
-        const blob = res.getBlob();
-        const meta = metaDataMap[id];
-        blob.setName(meta.name);
-        blob.setContentType(meta.mimeType);
-        prefetchMap[id] = blob;
-      } else {
-        console.warn(`Failed media fetch for ${id}: ${res.getContentText()}`);
-      }
-    });
-  }
-
-  return prefetchMap;
-}
-
-/**
- * Fetches Google Drive files as Blobs given their IDs.
- * Utilizes prefetchDriveAttachments_ for backwards compatibility in synchronous contexts.
- * @param {Array<string>} ids Array of Drive file IDs
- * @returns {Array<GoogleAppsScript.Base.Blob>} Array of Blobs
- */
-function getBlobsFromFileIds_(ids) {
-  const prefetched = prefetchDriveAttachments_(ids);
-  return ids.map((id) => prefetched[id]).filter((blob) => blob !== undefined);
-}
-
-/**
  * Replaces {{variables}} in a string with data from a row.
  * @param {string} template The text containing {{vars}}
  * @param {Array<string>} headers The array of column headers
@@ -528,24 +408,10 @@ function sendTestEmail(config) {
 
     const msg = draft.getMessage();
 
-    // Look for explicit CC/BCC/Attachment columns
-    const ccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'cc');
-    const bccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'bcc');
-    const attachmentColIndex = headers.findIndex((h) => {
-      const name = String(h).trim().toLowerCase();
-      return name === 'attachment' || name === 'attachments';
-    });
-
-    // Process templates, falling back to Draft CC/BCC if columns are empty or don't exist
+    // Process templates
     const subject = replaceVariables(msg.getSubject(), headers, testRow);
     const htmlBody = replaceVariables(msg.getBody(), headers, testRow);
     const plainBody = replaceVariables(msg.getPlainBody(), headers, testRow);
-
-    let cc = ccColIndex !== -1 && testRow[ccColIndex] ? String(testRow[ccColIndex]).trim() : '';
-    if (!cc) cc = replaceVariables(msg.getCc(), headers, testRow);
-
-    let bcc = bccColIndex !== -1 && testRow[bccColIndex] ? String(testRow[bccColIndex]).trim() : '';
-    if (!bcc) bcc = replaceVariables(msg.getBcc(), headers, testRow);
 
     // The recipient is the active user for tests
     const recipient = Session.getActiveUser().getEmail();
@@ -553,27 +419,9 @@ function sendTestEmail(config) {
 
     // Extract inline image Content-IDs from the draft
     const inlineContentIds = getInlineContentIds_(msg.getId());
-    let attachments = msg.getAttachments({ includeInlineImages: true });
+    const attachments = msg.getAttachments({ includeInlineImages: true });
 
-    // Process personalized attachments from the spreadsheet
-    if (attachmentColIndex !== -1) {
-      const cellValue = testRow[attachmentColIndex];
-      let richTextValue = null;
-      if (cellValue && !String(cellValue).startsWith('#')) {
-        try {
-          richTextValue = sheet.getRange(2, attachmentColIndex + 1).getRichTextValue();
-        } catch (e) {
-          console.warn('Failed to read rich text for test email attachment', e);
-        }
-      }
-      const ids = extractDriveFileIds_(cellValue, richTextValue);
-      if (ids.length > 0) {
-        const customBlobs = getBlobsFromFileIds_(ids);
-        attachments = attachments.concat(customBlobs);
-      }
-    }
-
-    // Build MIME message with custom tracking headers
+    // Build MIME message with custom tracking headers (test emails have no CC/BCC)
     const raw = buildMimeMessage({
       to: recipient,
       from: senderEmail,
@@ -582,8 +430,8 @@ function sendTestEmail(config) {
       subject: subject,
       plainBody: plainBody,
       htmlBody: htmlBody,
-      cc: cc,
-      bcc: bcc,
+      cc: '',
+      bcc: '',
       attachments: attachments,
       inlineContentIds: inlineContentIds,
       customHeaders: {
@@ -687,10 +535,6 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const ccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'cc');
     const bccColIndex = headers.findIndex((h) => String(h).trim().toLowerCase() === 'bcc');
-    const attachmentColIndex = headers.findIndex((h) => {
-      const name = String(h).trim().toLowerCase();
-      return name === 'attachment' || name === 'attachments';
-    });
 
     if (emailColIndex === -1) throw new Error('Email column not found.');
     if (statusColIndex === -1) {
@@ -703,26 +547,12 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
     const data = dataRange.getValues();
-    const hiddenRows = buildHiddenRowMap_(sheet, data.length);
+    const hiddenRows = buildHiddenRowMap_(lockSsId, lockTab, data.length);
 
     const statusValues = sheet.getRange(2, statusColIndex + 1, data.length, 1).getValues();
     const statusNotes = sheet.getRange(2, statusColIndex + 1, data.length, 1).getNotes();
     const emailNotes = sheet.getRange(2, emailColIndex + 1, data.length, 1).getNotes();
     const dirtyWindow = { start: null, end: null };
-
-    let attachmentRichTextData = null;
-    if (attachmentColIndex !== -1) {
-      try {
-        attachmentRichTextData = sheet
-          .getRange(2, attachmentColIndex + 1, lastRow - 1, 1)
-          .getRichTextValues();
-      } catch (e) {
-        console.warn(
-          'Bulk getRichTextValues failed, likely due to a formula error in the column. Falling back to row-by-row fetching for valid cells.',
-          e
-        );
-      }
-    }
 
     // Calculate total valid rows to process
     let totalToSend = 0;
@@ -780,6 +610,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       const currentSheetId = config.spreadsheetId || spreadsheet.getId();
       campaignId = generateCampaignId_(currentSheetId);
       setProperty(CONFIG.KEYS.CAMPAIGN_ID, campaignId, lockSsId, lockTab);
+      setProperty(CONFIG.KEYS.CAMPAIGN_START_TIME, String(Date.now()), lockSsId, lockTab);
 
       // Setup Campaign Label based on subject
       const originalSubject = msg.getSubject() || 'Untitled Campaign';
@@ -810,39 +641,6 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     const statusColumnLetters = toColumnLetters_(statusColIndex);
     let sentCount = 0;
     const loopStart = startRow || 0;
-
-    // --- PARALLEL PRE-FETCHING ---
-    // Scan all valid rows to collect unique Google Drive File IDs
-    const allFileIds = new Set();
-    if (attachmentColIndex !== -1) {
-      for (let j = loopStart; j < data.length; j++) {
-        if (hiddenRows[j]) continue;
-        const row = data[j];
-        if (row.every((cell) => !cell || String(cell).trim() === '')) continue;
-        const status = statusValues[j][0];
-        const email = String(row[emailColIndex]).trim();
-        if (!email || (status && status !== '')) continue;
-        if (!EMAIL_REGEX.test(email)) continue;
-
-        const cellValue = row[attachmentColIndex];
-        let richTextValue = null;
-        if (attachmentRichTextData && attachmentRichTextData.length > j) {
-          richTextValue = attachmentRichTextData[j][0];
-        } else if (cellValue && !String(cellValue).startsWith('#')) {
-          try {
-            richTextValue = sheet.getRange(j + 2, attachmentColIndex + 1).getRichTextValue();
-          } catch (e) {
-            console.warn('Prefetch: getRichTextValue failed for row ' + (j + 2), e);
-          }
-        }
-        const ids = extractDriveFileIds_(cellValue, richTextValue);
-        ids.forEach((id) => allFileIds.add(id));
-      }
-    }
-
-    // Execute parallel Drive API requests to download attachments
-    const prefetchedBlobs = prefetchDriveAttachments_(Array.from(allFileIds));
-    // -----------------------------
 
     const executionStart = Date.now();
     const timeoutThreshold = isUiContext ? 25000 : MAX_EXECUTION_MS; // 25s for UI, 4.5m for triggers
@@ -919,7 +717,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     for (let i = loopStart; i < data.length; i++) {
       // ---- Timeout guard ----
-      if (Date.now() - executionStart > timeoutThreshold) {
+      if (Date.now() - executionStart > timeoutThreshold - BURST_TIMEOUT_BUFFER_MS) {
         flushBurst();
 
         // Save state and schedule continuation (scoped to this tab)
@@ -984,30 +782,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       let bcc = bccColIndex !== -1 && row[bccColIndex] ? String(row[bccColIndex]).trim() : '';
       if (!bcc) bcc = replaceVariables(bccTemplate, headers, row);
 
-      let currentAttachments = [...attachments];
-      if (attachmentColIndex !== -1) {
-        const cellValue = row[attachmentColIndex];
-        let richTextValue = null;
-
-        if (attachmentRichTextData && attachmentRichTextData.length > i) {
-          richTextValue = attachmentRichTextData[i][0];
-        } else if (cellValue && !String(cellValue).startsWith('#')) {
-          // Fallback row-by-row if bulk fetch failed (and cell is not an error)
-          try {
-            richTextValue = sheet.getRange(i + 2, attachmentColIndex + 1).getRichTextValue();
-          } catch (e) {
-            console.warn('Row-level getRichTextValue failed for row ' + (i + 2), e);
-          }
-        }
-
-        const ids = extractDriveFileIds_(cellValue, richTextValue);
-        if (ids.length > 0) {
-          const customBlobs = ids
-            .map((id) => prefetchedBlobs[id])
-            .filter((blob) => blob !== undefined);
-          currentAttachments = currentAttachments.concat(customBlobs);
-        }
-      }
+      const currentAttachments = attachments;
 
       const trackingId = Utilities.getUuid();
       emailNotes[i][0] = 'Tracking ID: ' + trackingId;
@@ -1070,36 +845,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         raw: raw
       });
 
-      if (
-        burstEntries.length >= SEND_BURST_SIZE ||
-        Date.now() - executionStart > timeoutThreshold - BURST_TIMEOUT_BUFFER_MS
-      ) {
+      if (burstEntries.length >= SEND_BURST_SIZE) {
         flushBurst();
-        if (Date.now() - executionStart > timeoutThreshold && i < data.length - 1) {
-          setProperty(CONFIG.KEYS.LAST_PROCESSED_ROW, String(i + 1), lockSsId, lockTab);
-          setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), lockSsId, lockTab);
-
-          cleanupOrphanedTriggers(lockSsId, lockTab);
-          const trigger = ScriptApp.newTrigger('resumeBatchSend')
-            .timeBased()
-            .after(1) // resume as soon as Apps Script can schedule it
-            .create();
-          mapTriggerToSpreadsheet(trigger, lockSsId, lockTab);
-
-          cache.put(
-            CONFIG.KEYS.PROGRESS_CACHE,
-            JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }),
-            7200
-          );
-
-          return {
-            success: true,
-            message: `Sent ${sentCount} emails so far. The rest is continuing in the background now.`,
-            sentCount: sentCount,
-            total: totalToSend,
-            status: 'paused'
-          };
-        }
       }
     }
 
@@ -1122,6 +869,15 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     // Register this tab and (re)enable the per-spreadsheet background analytics scanner.
     setupAnalyticsTrigger(lockSsId, lockTab);
+
+    // Run initial bounce check immediately to catch instant delivery failures
+    if (typeof checkBounces === 'function') {
+      try {
+        checkBounces(Date.now(), lockSsId, lockTab);
+      } catch (bounceErr) {
+        console.error('Initial immediate bounce check failed: ', bounceErr);
+      }
+    }
 
     return {
       success: true,
@@ -1221,156 +977,11 @@ function startBackgroundBatchEmails(config) {
   }
 }
 
-/**
- * Schedules a batch of emails to be sent at a future date and time.
- * @param {Object} config The settings from the UI
- * @returns {Object} {success: boolean, message: string}
- */
-function scheduleBatchEmails(config) {
-  try {
-    if (typeof cleanupOrphanedTriggers === 'function')
-      cleanupOrphanedTriggers(config.spreadsheetId, config.sheetName);
-
-    const scheduleTime = new Date(config.scheduleDate).getTime();
-    const now = Date.now();
-    // Allow a 60-second grace period for "future" checks to account for UI lag/clock drift
-    if (scheduleTime <= now - 60000) {
-      throw new Error('Scheduled time must be in the future.');
-    }
-
-    let sheet;
-    if (config.spreadsheetId && config.sheetName) {
-      sheet = SpreadsheetApp.openById(config.spreadsheetId).getSheetByName(config.sheetName);
-    } else {
-      sheet = SpreadsheetApp.getActiveSheet();
-    }
-
-    // Pre-flight validation
-    const validation = validateTemplate(config.draftId, sheet);
-    if (!validation.isValid) {
-      return {
-        success: false,
-        message: 'Validation failed. Missing columns: ' + validation.missingColumns.join(', ')
-      };
-    }
-
-    // Save the config for the scheduled run (scoped to this tab)
-    setProperty(
-      CONFIG.KEYS.SCHEDULED_BATCH_CONFIG,
-      JSON.stringify(config),
-      config.spreadsheetId,
-      config.sheetName
-    );
-
-    // Clear only THIS tab's existing scheduled trigger, so scheduling one tab does
-    // not cancel a scheduled send queued on another tab of the same spreadsheet.
-    if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('startScheduledBatchSend', config.spreadsheetId, config.sheetName);
-    } else {
-      const triggers = ScriptApp.getProjectTriggers();
-      triggers.forEach((t) => {
-        if (t.getHandlerFunction() === 'startScheduledBatchSend') {
-          ScriptApp.deleteTrigger(t);
-        }
-      });
-    }
-
-    // Persist user timezone so it can be referenced later if needed
-    if (config.userTimezone) {
-      setProperty(
-        CONFIG.KEYS.USER_TIMEZONE,
-        config.userTimezone,
-        config.spreadsheetId,
-        config.sheetName
-      );
-    }
-
-    // Guard against trigger quota exhaustion (limit: 20 per user per script). The
-    // cleanup here is intentionally broad (all tabs) since it is about total count.
-    if (ScriptApp.getProjectTriggers().length >= 18) {
-      cleanupOrphanedTriggers(config.spreadsheetId);
-      if (ScriptApp.getProjectTriggers().length >= 18) {
-        return {
-          success: false,
-          message:
-            'Too many background tasks are already queued. Please wait a few minutes for the current batch to finish, then try again.'
-        };
-      }
-    }
-
-    // Create the trigger (mapped to this tab)
-    const trigger = ScriptApp.newTrigger('startScheduledBatchSend')
-      .timeBased()
-      .at(new Date(scheduleTime))
-      .create();
-    mapTriggerToSpreadsheet(trigger, config.spreadsheetId, config.sheetName);
-
-    // Format the time in the user's local timezone for the confirmation toast
-    const displayTz =
-      config.userTimezone ||
-      SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() ||
-      Session.getScriptTimeZone();
-    const formattedDate = Utilities.formatDate(
-      new Date(scheduleTime),
-      displayTz,
-      "EEEE, MMMM d, yyyy 'at' h:mm a z"
-    );
-    return { success: true, message: `Campaign successfully scheduled for ${formattedDate}` };
-  } catch (err) {
-    return { success: false, message: err.message };
-  }
-}
-
-/**
- * Invoked by a time-driven trigger to start a scheduled batch.
- */
-function startScheduledBatchSend(e) {
-  try {
-    // Pin the originating spreadsheet + tab so scheduled state resolves correctly.
-    setTriggerSpreadsheetIdContext(e);
-    const spreadsheetId = getSpreadsheetIdFromTrigger(e);
-    const sheetName = getSheetNameFromTrigger(e);
-    if (e && e.triggerUid) deleteTriggerMapping(e.triggerUid);
-
-    // Delete the trigger that called us (this tab only)
-    if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
-    } else {
-      const triggers = ScriptApp.getProjectTriggers();
-      triggers.forEach((t) => {
-        if (t.getHandlerFunction() === 'startScheduledBatchSend') {
-          ScriptApp.deleteTrigger(t);
-        }
-      });
-    }
-
-    // Retrieve saved configuration (scoped to this tab)
-    const configJson = getProperty(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId, sheetName);
-    if (!configJson) {
-      console.log('startScheduledBatchSend: No scheduled config found.');
-      return;
-    }
-
-    const config = JSON.parse(configJson);
-    PropertiesService.getUserProperties().deleteProperty(
-      _getCompositeKey(CONFIG.KEYS.SCHEDULED_BATCH_CONFIG, spreadsheetId, sheetName)
-    );
-
-    console.log('startScheduledBatchSend: Starting scheduled batch send.');
-    const result = sendBatchEmails(config, 0);
-    console.log('startScheduledBatchSend result: ' + JSON.stringify(result));
-  } catch (err) {
-    if (typeof ErrorLib !== 'undefined') ErrorLib.logError(err, 'startScheduledBatchSend');
-    console.error('startScheduledBatchSend crashed: ', err);
-  }
-}
-
 if (typeof module !== 'undefined') {
   module.exports = {
     replaceVariables,
     sendBatchEmails,
     sendTestEmail,
-    scheduleBatchEmails,
     startBackgroundBatchEmails
   };
 }

@@ -88,3 +88,31 @@ This phase hardens the tool for enterprise use and adds scheduling.
 2. **Error Handling & Validation:**
    - Highlight invalid email formats in the Sheet before sending.
    - Provide clear error messages in the sidebar if the Web App URL isn't configured or if the user is out of quota.
+
+## Removed and Simplified Features (For Production Stability & Performance)
+
+To prevent runtime timeout errors, minimize API rate limit contention, and simplify user workflow, the following features were removed/streamlined. They can be recovered from Git history if re-implemented in the future:
+
+### 1. Personalized Attachments (Removed)
+
+- **Description:** Scan an "Attachment" or "Attachments" column for Google Drive URLs, fetch those files in parallel using `UrlFetchApp.fetchAll`, and dynamically attach them to each recipient's email.
+- **Reason for Removal:** Fetches and row-by-row `getRichTextValue()` calls (used as a fallback when bulk reads failed) triggered thousands of spreadsheet API calls, causing the script to hit the 30-second UI execution limit or the 6-minute background execution limit before any email was sent.
+- **Current State:** Only attachments included directly in the constant Gmail draft are sent to all recipients. Drive API calls are eliminated.
+
+### 2. Scheduled Sending (Removed)
+
+- **Description:** A DateTimePicker in the sidebar allowing users to schedule a batch send for a future date/time. A background trigger was scheduled (`startScheduledBatchSend`) to start the batch.
+- **Reason for Removal:** Reduced overhead of trigger quota management (which is limited to 20 triggers per user per project) and simplified UI/UX.
+- **Current State:** All batch sends start immediately in the background (using the asynchronous continuation triggers to avoid the 30-second UI limit).
+
+### 3. Campaign Metrics Display in UI (Removed)
+
+- **Description:** A "Campaign Analytics" card section in the sidebar showing open/reply/bounce stats, along with a "Refresh Analytics" button.
+- **Reason for Removal:** Cleaned up the UI and minimized sidebar load times.
+- **Current State:** Bounces and replies are still tracked and updated directly in the spreadsheet status column ("Bounced", "Replied"). The summary card is removed from the UI.
+
+### 4. Background Analytics Scanner Expiry (Optimized)
+
+- **Description:** A background trigger (`runAnalyticsScanner`) that ran every 3 hours indefinitely to scan for bounces and replies.
+- **Reason for Optimization:** Indefinite background triggers consume significant script runtime and API quotas.
+- **Current State:** The scanner is scheduled to run every 3 hours when a campaign starts. It automatically monitors the campaign start time (`CAMPAIGN_START_TIME`) and unregisters tabs older than 7 days. Once all campaign tabs on a spreadsheet are older than 7 days, the trigger automatically deletes itself.

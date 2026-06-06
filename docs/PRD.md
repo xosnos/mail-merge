@@ -38,7 +38,7 @@ This internal tool enables non-technical users to execute personalized mass emai
 
 - **Draft Retrieval:** The tool must fetch all current user drafts from Gmail and display their subject lines in a dropdown menu within the Sheets sidebar.
 - **Variable Parsing:** The tool must identify variables enclosed in double curly brackets `{{ }}` within the Subject, Body (HTML and plain text), To, CC, and BCC fields of the draft.
-- **Attachment Support:** Any attachments present in the Gmail draft must be carried over and sent with the merged emails. Additionally, an "Attachment" column containing Google Drive links dynamically fetches and adds those files to the email.
+- **Attachment Support:** Any attachments present in the Gmail draft template must be carried over and sent with the merged emails. (Dynamic personalized attachments from Google Drive are omitted to maximize performance, avoid Drive API rate limits, and prevent timeouts).
 
 ### 5.2 Data Mapping & Execution (Google Sheets Integration)
 
@@ -62,8 +62,8 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 
 ### 5.4 Advanced Features (Implemented)
 
-- **Test Email Functionality:** Allows the user to send a test email to themselves before running the whole batch to verify formatting and variable substitution.
-- **Scheduling:** Allows users to schedule the mail merge to run at a specific future date and time.
+- **Test Email Functionality:** Allows the user to send a test email to themselves before running the whole batch to verify formatting and variable substitution. (Note: CC/BCC headers are stripped from test sends so test emails go exclusively to the testing user).
+- **Immediate Background Execution:** To bypass the 30-second UI limit, all mail merges run instantly in the background using Apps Script time-driven continuation triggers. Future-dated scheduled sending is omitted.
 - **Smart Filtering:** The tool will respect hidden or filtered rows in the spreadsheet, skipping them seamlessly during the batch send process.
 
 ---
@@ -71,7 +71,8 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 ## 6. Non-Functional Requirements & Constraints
 
 - **Google Workspace Limits:** The tool must account for Google's daily email sending quotas (typically 1,500 - 2,000 for Workspace accounts, 400 for trial/free). The UI should warn users if their list exceeds their daily quota.
-- **Performance & Resiliency:** Sending a batch of emails should process quickly. The synchronous UI pass sends for up to ~25 seconds (staying under the 30-second `CardService` callback limit), dispatching the first few hundred recipients instantly; any remainder is handed to a continuation trigger created with `after(1)` so it starts immediately rather than after a fixed delay. Background executions use the full 6-minute window, so a typical campaign (≤500 rows) completes its remainder in a single continuation. Each tab of a spreadsheet is an independent campaign (its own config, resume state, scheduled send, and analytics). Concurrent sends against the same tab are serialized with a per-tab lock to prevent double-sends, while sends against different tabs or spreadsheets run in parallel. Large campaigns should be processed with burst-based parallel sends and buffered sheet writes rather than strictly row-by-row operations. All API calls (like sending an email or updating the sheet) must be wrapped in exponential backoff logic to prevent failure from sudden rate-limits (Google API 429 Too Many Requests). Background crashes should be logged to a hidden dead-letter `_Logs` spreadsheet tab, and managed triggers must be cleaned up per spreadsheet to avoid trigger quota exhaustion.
+- **Performance & Resiliency:** Sending a batch of emails should process quickly. The synchronous UI pass sends for up to ~25 seconds (staying under the 30-second `CardService` callback limit), dispatching the first few hundred recipients instantly; any remainder is handed to a continuation trigger created with `after(1)` so it starts immediately rather than after a fixed delay. Background executions use the full 6-minute window, so a typical campaign (≤500 rows) completes its remainder in a single continuation. Each tab of a spreadsheet is an independent campaign (its own config, resume state, and analytics). Concurrent sends against the same tab are serialized with a per-tab lock to prevent double-sends, while sends against different tabs or spreadsheets run in parallel. Large campaigns are processed with burst-based parallel sends and buffered sheet writes.
+- **Bulk Hidden Row Query (Sheets API)**: To avoid timing out within the 30-second UI callback window, the script uses the Advanced Sheets Service (`Sheets.Spreadsheets.get()`) to fetch hidden/filtered row metadata in a single bulk call instead of running slow row-by-row queries.
 - **Security:** Ensure the script runs _as the user executing the add-on_ so emails are sent from their account and data access is restricted to their permissions.
 
 ---

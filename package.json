@@ -12,7 +12,9 @@
     "deploy:tracker": "cd central-tracker && clasp push && clasp deploy",
     "deploy": "npm run deploy:tracker && npm run deploy:addon",
     "test": "jest",
-    "lint": "eslint src/ central-tracker/"
+    "lint": "eslint src/ central-tracker/",
+    "format:check": "prettier --check .",
+    "format:write": "prettier --write ."
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
