@@ -6,11 +6,11 @@ This phase establishes the workspace, permissions, and basic UI shell.
 
 1. **Initialize the Environment:**
    - Create a Google Apps Script project for the Workspace Add-on.
-   - Configure `appsscript.json` (the manifest) to include explicit OAuth scopes required for the project (e.g., `https://mail.google.com/`, `https://www.googleapis.com/auth/script.send_mail`, `https://www.googleapis.com/auth/spreadsheets`).
+   - Configure `appsscript.json` (the manifest) to include explicit OAuth scopes required for the project, including Sheets, Gmail send/modify, Drive, ScriptApp, and external request access.
 2. **Build the UI Shell (CardService):**
    - Develop the Sidebar UI using the Google Workspace Add-on `CardService`. Create the navigation flow and the basic configuration form elements.
 3. **Establish State Management:**
-   - Set up a mechanism using `PropertiesService` (Document Properties) to store campaign settings (selected draft ID, sender alias, scheduled time) so the UI can retrieve the state if the user closes and reopens the sidebar.
+   - Set up a mechanism using `PropertiesService` with spreadsheet-scoped composite keys to store campaign settings (selected draft ID, sender alias, scheduled time) so the UI can retrieve the state if the user closes and reopens the sidebar without cross-sheet collisions.
 
 ### Phase 2: Gmail Integration & Templating Engine
 
@@ -26,20 +26,22 @@ This phase handles reading drafts and preparing the message content.
    - Write a regex utility (e.g., `/\{\{(.*?)\}\}/g`) to scan the active draft’s Subject, HTML Body, Plain Text Body, CC, and BCC fields.
    - Write a validation function to compare the extracted `{{variables}}` against the current Sheet's column headers (Row 1) and alert the user in the UI if there are missing columns.
 
-### Phase 3: The Core Send & Merge Engine (Including Test Emails)
+### Phase 3: The Core Send & Merge Engine (Including Test Emails) (Completed)
 
 This phase is the heavy lifting of mapping data and dispatching emails.
 
 1. **Build the "Test Email" Functionality:**
    - Create a function that takes the selected draft and maps it to a specific row (e.g., Row 2).
-   - Send the parsed email _only_ to the active user's email address using `GmailApp.sendEmail()` or the Advanced Gmail API.
+   - Send the parsed email _only_ to the active user's email address using the same MIME/Gmail API pipeline as the production send path.
 2. **Develop the Batch Send Logic:**
    - Read the Sheet data as a 2D array.
    - Iterate through rows. For each row, replace the `{{variables}}` in the draft payload with the corresponding array index values.
    - Inject custom headers via the Advanced Gmail API (vital for tracking). Specifically, inject a custom `X-Campaign-ID` and `X-Row-ID` to easily tie replies and bounces back to a specific sheet row.
+   - Optimize throughput by preparing bursts of messages, sending them in parallel with `UrlFetchApp.fetchAll`, buffering sheet writes, and applying campaign labels after send via `users.messages.modify`.
 3. **Implement Quota & Timeout Management:**
    - Check `MailApp.getRemainingDailyQuota()` before initiating a run. Prevent execution if the list exceeds the quota.
    - Implement execution tracking. GAS scripts time out after 6 minutes. Store the `lastProcessedRow` in `PropertiesService`. If execution nears 5 minutes, gracefully halt and spawn a new time-driven trigger to resume the batch a minute later.
+   - Scope all managed time-based triggers by spreadsheet ID so stale resume/background triggers do not accumulate across runs.
 
 ### Phase 4: Tracking & Analytics Engine
 
@@ -49,7 +51,7 @@ This phase requires setting up external listeners and inbox parsers.
    - Create a standalone Google Apps Script Web App (`central-tracker`).
    - **Domain-Wide Delegation:** Configure a Google Cloud Service Account and use the `OAuth2` Apps Script library to grant the Tracker the ability to write to the sender's sheet.
    - **Pixel Injection:** During the send loop (Phase 3), append an invisible 1x1 image to the HTML body pointing to the Tracker URL with HMAC-signed query parameters including `tid` (Tracking ID) and `ts` (Timestamp).
-   - **Status Update:** When the Web App receives a ping, it validates the HMAC signature, ignores pings under a 10-second threshold from `ts`, locates the row via a Sheets API search for `tid` in cell notes, and updates the cell to "Opened" (unless it's already "Replied"). Return a 1x1 transparent GIF.
+   - **Status Update:** When the Web App receives a ping, it validates the HMAC signature, ignores pings under a 10-second threshold from `ts`, locates the row via a Sheets API search for `tid` in cell notes, and updates the cell to `Email opened` even if the sender has not yet flushed `Email sent` to the sheet.
 2. **Build the Inbox Scanner (Replies & Bounces):**
    - Write a function to scan the user's inbox using `GmailApp.search()`.
    - _For Replies:_ Search for emails in threads belonging to the campaign, or search by your custom `X-Campaign-ID` header. Ignore `mailer-daemon` replies.
@@ -57,9 +59,9 @@ This phase requires setting up external listeners and inbox parsers.
    - Update the corresponding row in the Sheet. Ensure 'Bounced' statuses are never overwritten by 'Replied'.
    - **[Mitigated]:** Implement a mechanism to prevent tracking pixels from prematurely changing the merge status from 'Sent' to 'Opened' immediately after an email is dispatched. (Resolved via 10-second `ts` threshold in Tracker.js).
 3. **Automate the Scanner:**
-   - Create a time-driven trigger (e.g., every 1-2 hours) to run the Inbox Scanner in the background so the Sheet updates automatically.
+   - Create a time-driven trigger (currently every 3 hours) to run the Inbox Scanner in the background so the Sheet updates automatically, with spreadsheet-scoped cleanup to avoid trigger quota exhaustion.
 
-### Phase 5: Advanced Automation & Production Readiness
+### Phase 5: Advanced Automation & Production Readiness (Partially Completed)
 
 This phase hardens the tool for enterprise use and adds scheduling.
 

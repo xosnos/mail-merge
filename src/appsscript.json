@@ -17,7 +17,14 @@
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/script.container.ui",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/script.scriptapp"
+    "https://www.googleapis.com/auth/script.scriptapp",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/script.external_request"
+  ],
+  "urlFetchWhitelist": [
+    "https://www.googleapis.com/drive/v3/files/",
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
   ],
   "runtimeVersion": "V8",
   "webapp": {

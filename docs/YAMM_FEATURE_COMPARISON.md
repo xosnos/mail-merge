@@ -6,8 +6,8 @@ This document outlines the current feature set of the UNAVSA Mail Merge tool com
 
 - **Dynamic CC and BCC Support:**
   - _YAMM:_ Allows adding "CC" or "BCC" columns in the spreadsheet to dynamically copy different people on each row's email.
-  - _Our Tool:_ Currently, we only parse the CC/BCC fields saved in the _Gmail draft itself_, meaning everyone gets CC'd the same people.
-  - _Implementation Path:_ Update `src/services/SendEngine.js` to check for "CC" and "BCC" columns in the sheet and inject those into the `buildMimeMessage` function.
+  - _Our Tool:_ This feature is now fully supported. The tool automatically detects "CC" and "BCC" columns in the sheet and dynamically injects them into the email headers for each row.
+  - _Implementation Path:_ Achieved. `src/services/SendEngine.js` checks for "CC" and "BCC" columns and processes them alongside draft defaults.
 
 - **Follow-up Campaigns in the Same Thread:**
   - _YAMM:_ A massive selling point is the ability to easily send a follow-up draft (e.g., "Just bubbling this up!") _in the same email thread_ to people who didn't reply to the first batch.
@@ -42,3 +42,4 @@ This document outlines the current feature set of the UNAVSA Mail Merge tool com
   - _YAMM:_ You can use Google Sheets' native filter views to hide rows, and YAMM will only send to the visible rows.
   - _Our Tool:_ This feature is now fully supported. Hidden or filtered rows in your spreadsheet are natively skipped by the Google Apps Script execution.
   - _Implementation Path:_ Achieved. Using `sheet.isRowHiddenByFilter(row)` and `sheet.isRowHiddenByUser(row)`.
+    hieved. Using `sheet.isRowHiddenByFilter(row)` and `sheet.isRowHiddenByUser(row)`.

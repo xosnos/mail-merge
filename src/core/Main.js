@@ -6,43 +6,56 @@
  * Cleans up orphaned time-driven triggers for this project.
  * Limits the number of triggers for background functions to prevent hitting quota limits.
  */
-function cleanupOrphanedTriggers() {
+function cleanupOrphanedTriggers(spreadsheetId, sheetName) {
   try {
     const activeHandlers = ['startScheduledBatchSend', 'resumeBatchSend', 'runAnalyticsScanner'];
-    const seen = {};
-
-    // Clean up project triggers
-    const projectTriggers = ScriptApp.getProjectTriggers();
-    projectTriggers.forEach((t) => {
-      const handler = t.getHandlerFunction();
-      if (activeHandlers.includes(handler)) {
-        if (seen[handler]) {
-          ScriptApp.deleteTrigger(t);
-        } else {
-          seen[handler] = true;
-        }
-      } else if (t.getEventType() === ScriptApp.EventType.CLOCK) {
-        ScriptApp.deleteTrigger(t);
+    let targetSpreadsheetId = spreadsheetId || null;
+    if (!targetSpreadsheetId) {
+      try {
+        const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+        if (activeSpreadsheet) targetSpreadsheetId = activeSpreadsheet.getId();
+      } catch (e) {
+        // Ignore missing spreadsheet context.
       }
-    });
+    }
+    // Only restrict to a tab when one is explicitly given; otherwise clean every tab
+    // of the spreadsheet (preserves the broad cleanup callers that pass no tab).
+    const targetSheetName = sheetName || null;
 
-    // Clean up document triggers (Add-on specific limits apply per document)
+    const deletedTriggerIds = {};
+    const maybeDeleteTrigger = (trigger) => {
+      if (!trigger || deletedTriggerIds[trigger.getUniqueId()]) return;
+      if (trigger.getEventType() !== ScriptApp.EventType.CLOCK) return;
+
+      const handler = trigger.getHandlerFunction();
+      if (!activeHandlers.includes(handler)) return;
+
+      const mapping =
+        typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
+      const mappedSpreadsheetId = mapping ? mapping.spreadsheetId : null;
+      const mappedSheetName = mapping ? mapping.sheetName : null;
+      if (
+        targetSpreadsheetId &&
+        mappedSpreadsheetId &&
+        mappedSpreadsheetId !== targetSpreadsheetId
+      ) {
+        return;
+      }
+      if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {
+        return;
+      }
+
+      deletedTriggerIds[trigger.getUniqueId()] = true;
+      if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(trigger.getUniqueId());
+      ScriptApp.deleteTrigger(trigger);
+    };
+
+    ScriptApp.getProjectTriggers().forEach(maybeDeleteTrigger);
+
     try {
       const doc = SpreadsheetApp.getActiveSpreadsheet();
-      if (doc) {
-        const docTriggers = ScriptApp.getUserTriggers(doc);
-        docTriggers.forEach((t) => {
-          const handler = t.getHandlerFunction();
-          if (activeHandlers.includes(handler)) {
-            if (seen[handler]) {
-              ScriptApp.deleteTrigger(t);
-            } else {
-              seen[handler] = true;
-            }
-          } else if (t.getEventType() === ScriptApp.EventType.CLOCK) {
-            ScriptApp.deleteTrigger(t);
-          }
-        });
+      if (doc && (!targetSpreadsheetId || doc.getId() === targetSpreadsheetId)) {
+        ScriptApp.getUserTriggers(doc).forEach(maybeDeleteTrigger);
       }
     } catch (docErr) {
       console.error('Doc trigger cleanup ignored: ' + docErr);
@@ -52,24 +65,50 @@ function cleanupOrphanedTriggers() {
   }
 }
 
-function deleteTriggerByHandler(handlerName) {
+function deleteTriggerByHandler(handlerName, spreadsheetId, sheetName) {
   try {
-    const projectTriggers = ScriptApp.getProjectTriggers();
-    projectTriggers.forEach((t) => {
-      if (t.getHandlerFunction() === handlerName) {
-        ScriptApp.deleteTrigger(t);
+    let targetSpreadsheetId = spreadsheetId || null;
+    if (!targetSpreadsheetId) {
+      try {
+        const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+        if (activeSpreadsheet) targetSpreadsheetId = activeSpreadsheet.getId();
+      } catch (e) {
+        // Ignore missing spreadsheet context.
       }
-    });
+    }
+    const targetSheetName = sheetName || null;
+
+    const deletedTriggerIds = {};
+    const maybeDeleteTrigger = (trigger) => {
+      if (!trigger || deletedTriggerIds[trigger.getUniqueId()]) return;
+      if (trigger.getHandlerFunction() !== handlerName) return;
+
+      const mapping =
+        typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
+      const mappedSpreadsheetId = mapping ? mapping.spreadsheetId : null;
+      const mappedSheetName = mapping ? mapping.sheetName : null;
+      if (
+        targetSpreadsheetId &&
+        mappedSpreadsheetId &&
+        mappedSpreadsheetId !== targetSpreadsheetId
+      ) {
+        return;
+      }
+      if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {
+        return;
+      }
+
+      deletedTriggerIds[trigger.getUniqueId()] = true;
+      if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(trigger.getUniqueId());
+      ScriptApp.deleteTrigger(trigger);
+    };
+
+    ScriptApp.getProjectTriggers().forEach(maybeDeleteTrigger);
 
     try {
       const doc = SpreadsheetApp.getActiveSpreadsheet();
-      if (doc) {
-        const docTriggers = ScriptApp.getUserTriggers(doc);
-        docTriggers.forEach((t) => {
-          if (t.getHandlerFunction() === handlerName) {
-            ScriptApp.deleteTrigger(t);
-          }
-        });
+      if (doc && (!targetSpreadsheetId || doc.getId() === targetSpreadsheetId)) {
+        ScriptApp.getUserTriggers(doc).forEach(maybeDeleteTrigger);
       }
     } catch (e) {
       // Ignore if not bound to doc
@@ -84,11 +123,11 @@ function deleteTriggerByHandler(handlerName) {
  * @param {string} draftId
  * @returns {Object} { isValid: boolean, missingColumns: string[], variables: string[] }
  */
-function validateTemplate(draftId) {
-  const sheet = SpreadsheetApp.getActiveSheet();
+function validateTemplate(draftId, sheet) {
+  sheet = sheet || SpreadsheetApp.getActiveSheet();
 
   // Handle empty sheet case
-  if (sheet.getLastColumn() === 0) {
+  if (!sheet || sheet.getLastColumn() === 0) {
     return {
       isValid: false,
       missingColumns: ['Sheet is empty. Add headers to Row 1.'],

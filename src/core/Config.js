@@ -39,31 +39,338 @@ const CONFIG = {
   }
 };
 
+// Background trigger context. Resolved from the trigger->tab mapping so background
+// executions (which have no active spreadsheet/sheet) scope their state to the
+// originating tab, exactly like the UI context does via the active sheet.
+let _activeTriggerSpreadsheetId = null;
+let _activeTriggerSheetName = null;
+
 /**
- * Saves a single key-value pair to Document Properties
- * @param {string} key
- * @param {string} value
+ * Parses a trigger mapping value into { spreadsheetId, sheetName }.
+ * Accepts the current JSON format and the legacy bare-spreadsheetId string.
+ * @param {string|null} raw
+ * @returns {{spreadsheetId: (string|null), sheetName: (string|null)}}
  */
-function setProperty(key, value) {
-  const props = PropertiesService.getDocumentProperties();
-  props.setProperty(key, value);
+function _parseTriggerMapping(raw) {
+  if (!raw) return { spreadsheetId: null, sheetName: null };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && (parsed.s || parsed.spreadsheetId)) {
+      return {
+        spreadsheetId: parsed.s || parsed.spreadsheetId || null,
+        sheetName: parsed.t || parsed.sheetName || null
+      };
+    }
+  } catch (e) {
+    // Legacy format: the value is a bare spreadsheet ID.
+  }
+  return { spreadsheetId: raw, sheetName: null };
 }
 
 /**
- * Gets a value from Document Properties
+ * Initializes the background trigger context with the mapped spreadsheet ID and tab.
+ * @param {Object} e Trigger event object
+ */
+function setTriggerSpreadsheetIdContext(e) {
+  if (e && e.triggerUid) {
+    const mapping = _parseTriggerMapping(
+      PropertiesService.getUserProperties().getProperty(`TRIGGER_MAP_${e.triggerUid}`)
+    );
+    _activeTriggerSpreadsheetId = mapping.spreadsheetId;
+    _activeTriggerSheetName = mapping.sheetName;
+  }
+}
+
+/**
+ * Builds a state key isolated by both spreadsheet ID and tab (sheet) name, so each
+ * tab that runs a mail merge keeps fully independent campaign/resume/schedule state.
  * @param {string} key
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ * @returns {string}
+ */
+function _getCompositeKey(key, spreadsheetId, sheetName) {
+  let id = spreadsheetId || _activeTriggerSpreadsheetId;
+  let tab = sheetName || _activeTriggerSheetName;
+  if (!id || tab === undefined || tab === null) {
+    try {
+      if (!id) {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        if (ss) id = ss.getId();
+      }
+      if (tab === undefined || tab === null) {
+        const sh = SpreadsheetApp.getActiveSheet();
+        if (sh) tab = sh.getName();
+      }
+    } catch (e) {
+      // No active document context (background trigger without mapping).
+    }
+  }
+  if (!id) return key;
+  return `${id}_${tab || ''}_${key}`;
+}
+
+/**
+ * Maps a trigger's unique ID to its originating spreadsheet + tab so background
+ * tasks can resolve and scope their state correctly.
+ * @param {GoogleAppsScript.Script.Trigger} trigger
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ */
+function mapTriggerToSpreadsheet(trigger, spreadsheetId, sheetName) {
+  let id = spreadsheetId;
+  let tab = sheetName;
+  try {
+    if (!id) {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) id = ss.getId();
+    }
+    if (tab === undefined || tab === null) {
+      const sh = SpreadsheetApp.getActiveSheet();
+      if (sh) tab = sh.getName();
+    }
+  } catch (e) {
+    // No active document context.
+  }
+  if (trigger && id) {
+    PropertiesService.getUserProperties().setProperty(
+      `TRIGGER_MAP_${trigger.getUniqueId()}`,
+      JSON.stringify({ s: id, t: tab || '' })
+    );
+  }
+}
+
+/**
+ * Retrieves the spreadsheet ID for a background trigger using its event object.
+ * @param {Object} [e] Time-driven event object
  * @returns {string|null}
  */
-function getProperty(key) {
-  return PropertiesService.getDocumentProperties().getProperty(key);
+function getSpreadsheetIdFromTrigger(e) {
+  if (e && e.triggerUid) {
+    const mapping = _parseTriggerMapping(
+      PropertiesService.getUserProperties().getProperty(`TRIGGER_MAP_${e.triggerUid}`)
+    );
+    if (mapping.spreadsheetId) return mapping.spreadsheetId;
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss ? ss.getId() : null;
 }
 
 /**
- * Clears all properties associated with the tool
+ * Retrieves the tab (sheet) name for a background trigger using its event object.
+ * @param {Object} [e] Time-driven event object
+ * @returns {string|null}
  */
-function clearProperties() {
-  const props = PropertiesService.getDocumentProperties();
+function getSheetNameFromTrigger(e) {
+  if (e && e.triggerUid) {
+    const mapping = _parseTriggerMapping(
+      PropertiesService.getUserProperties().getProperty(`TRIGGER_MAP_${e.triggerUid}`)
+    );
+    if (mapping.sheetName) return mapping.sheetName;
+  }
+  const sh = SpreadsheetApp.getActiveSheet();
+  return sh ? sh.getName() : null;
+}
+
+/**
+ * Retrieves the { spreadsheetId, sheetName } mapped to a trigger unique ID.
+ * @param {string} triggerUid
+ * @returns {{spreadsheetId: (string|null), sheetName: (string|null)}|null}
+ */
+function getTriggerMapping(triggerUid) {
+  if (!triggerUid) return null;
+  return _parseTriggerMapping(
+    PropertiesService.getUserProperties().getProperty(`TRIGGER_MAP_${triggerUid}`)
+  );
+}
+
+/**
+ * Cleans up a trigger mapping to prevent UserProperties bloat.
+ * @param {string} triggerUid
+ */
+function deleteTriggerMapping(triggerUid) {
+  if (triggerUid) {
+    PropertiesService.getUserProperties().deleteProperty(`TRIGGER_MAP_${triggerUid}`);
+  }
+}
+
+// A send marker is considered stale (e.g. a crashed run) once it is older than the
+// maximum possible execution span, so a tab can never get permanently locked.
+const SEND_LOCK_STALE_MS = 7 * 60 * 1000;
+
+/**
+ * Returns the shared property store used to hold per-tab "send in progress" markers,
+ * plus whether it is the document store. DocumentProperties is shared across all
+ * users of a spreadsheet (the shared-sheet case); ScriptProperties is the fallback
+ * for background/trigger contexts that have no active document.
+ * @returns {{store: GoogleAppsScript.Properties.Properties, isDoc: boolean}}
+ */
+function _getSendMarkerStore_() {
+  let docProps;
+  try {
+    docProps = PropertiesService.getDocumentProperties();
+  } catch (e) {
+    docProps = null;
+  }
+  if (docProps) return { store: docProps, isDoc: true };
+  return { store: PropertiesService.getScriptProperties(), isDoc: false };
+}
+
+/**
+ * Builds the marker key for a given tab. When stored in DocumentProperties the
+ * spreadsheet is already implied; in the ScriptProperties fallback the spreadsheet
+ * ID must be part of the key to avoid cross-spreadsheet collisions.
+ */
+function _sendMarkerKey_(isDoc, spreadsheetId, sheetName) {
+  const tab = sheetName || '';
+  return isDoc ? `SENDING_${tab}` : `SENDING_${spreadsheetId || ''}_${tab}`;
+}
+
+/**
+ * Acquires a per-tab send marker so only one send runs against a given tab at a time,
+ * while sends against other tabs (or other spreadsheets) proceed concurrently. The
+ * test-and-set is guarded by a brief LockService lock so it is atomic across users.
+ *
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ * @returns {Object|null} An opaque marker to pass to releaseSendLock_, or null if a
+ *   send is already active on this tab (or the marker could not be acquired).
+ */
+function acquireSendLock_(spreadsheetId, sheetName) {
+  const now = Date.now();
+  const { store, isDoc } = _getSendMarkerStore_();
+  const flagKey = _sendMarkerKey_(isDoc, spreadsheetId, sheetName);
+
+  // Brief atomic gate for the test-and-set only (held for milliseconds).
+  let gate;
+  try {
+    gate = LockService.getDocumentLock();
+  } catch (e) {
+    gate = null;
+  }
+  if (!gate) {
+    try {
+      gate = LockService.getScriptLock();
+    } catch (e) {
+      gate = null;
+    }
+  }
+  if (gate) {
+    try {
+      if (!gate.tryLock(8000)) return null;
+    } catch (e) {
+      gate = null;
+    }
+  }
+
+  try {
+    const existing = store.getProperty(flagKey);
+    if (existing) {
+      const ts = parseInt(existing, 10);
+      if (!isNaN(ts) && now - ts < SEND_LOCK_STALE_MS) {
+        return null; // Another send is active on this tab.
+      }
+    }
+    store.setProperty(flagKey, String(now));
+    return { isDoc, flagKey };
+  } finally {
+    if (gate) {
+      try {
+        gate.releaseLock();
+      } catch (e) {
+        // Ignore release failures.
+      }
+    }
+  }
+}
+
+/**
+ * Releases a per-tab send marker acquired via acquireSendLock_.
+ * @param {Object|null} marker
+ */
+function releaseSendLock_(marker) {
+  if (!marker) return;
+  try {
+    const store = marker.isDoc
+      ? PropertiesService.getDocumentProperties()
+      : PropertiesService.getScriptProperties();
+    if (store) store.deleteProperty(marker.flagKey);
+  } catch (e) {
+    // Ignore; a stale marker self-expires via SEND_LOCK_STALE_MS.
+  }
+}
+
+/**
+ * Registers a tab as having an active campaign for the spreadsheet, so the single
+ * per-spreadsheet analytics scanner knows to scan every tab that has been sent.
+ * The registry is spreadsheet-scoped (not tab-scoped) on purpose.
+ * @param {string} spreadsheetId
+ * @param {string} sheetName
+ */
+function registerCampaignTab_(spreadsheetId, sheetName) {
+  if (!spreadsheetId || !sheetName) return;
+  const key = _getCompositeKey('YAMM_CLONE_CAMPAIGN_TABS', spreadsheetId, '');
+  const props = PropertiesService.getUserProperties();
+  let tabs;
+  try {
+    tabs = JSON.parse(props.getProperty(key) || '[]');
+  } catch (e) {
+    tabs = [];
+  }
+  if (tabs.indexOf(sheetName) === -1) {
+    tabs.push(sheetName);
+    props.setProperty(key, JSON.stringify(tabs));
+  }
+}
+
+/**
+ * Returns the list of tab names with active campaigns for a spreadsheet.
+ * @param {string} spreadsheetId
+ * @returns {string[]}
+ */
+function getCampaignTabs_(spreadsheetId) {
+  const key = _getCompositeKey('YAMM_CLONE_CAMPAIGN_TABS', spreadsheetId, '');
+  try {
+    return JSON.parse(PropertiesService.getUserProperties().getProperty(key) || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
+ * Saves a single key-value pair to User Properties (per-user, prevents cross-user collisions).
+ * Isolated per spreadsheet AND tab so each tab keeps independent state.
+ * @param {string} key
+ * @param {string} value
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ */
+function setProperty(key, value, spreadsheetId, sheetName) {
+  const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
+  PropertiesService.getUserProperties().setProperty(compositeKey, value);
+}
+
+/**
+ * Gets a value from User Properties, isolated per spreadsheet and tab.
+ * @param {string} key
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ * @returns {string|null}
+ */
+function getProperty(key, spreadsheetId, sheetName) {
+  const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
+  return PropertiesService.getUserProperties().getProperty(compositeKey);
+}
+
+/**
+ * Clears all properties associated with the tool for the current user, spreadsheet, and tab.
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ */
+function clearProperties(spreadsheetId, sheetName) {
+  const props = PropertiesService.getUserProperties();
   Object.values(CONFIG.KEYS).forEach((key) => {
-    props.deleteProperty(key);
+    const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
+    props.deleteProperty(compositeKey);
   });
 }

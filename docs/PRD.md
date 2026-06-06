@@ -38,7 +38,7 @@ This internal tool enables non-technical users to execute personalized mass emai
 
 - **Draft Retrieval:** The tool must fetch all current user drafts from Gmail and display their subject lines in a dropdown menu within the Sheets sidebar.
 - **Variable Parsing:** The tool must identify variables enclosed in double curly brackets `{{ }}` within the Subject, Body (HTML and plain text), To, CC, and BCC fields of the draft.
-- **Attachment Support:** Any attachments present in the Gmail draft must be carried over and sent with the merged emails.
+- **Attachment Support:** Any attachments present in the Gmail draft must be carried over and sent with the merged emails. Additionally, an "Attachment" column containing Google Drive links dynamically fetches and adds those files to the email.
 
 ### 5.2 Data Mapping & Execution (Google Sheets Integration)
 
@@ -58,6 +58,7 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 - **Opened:** Tracked via a 1x1 invisible tracking pixel (image) embedded at the bottom of the HTML email body, utilizing a unique Tracking ID (`tid`) and timestamp (`ts`) to prevent premature open tracking.
 - **Replied:** Tracked by querying the Gmail API for threads linked to the original campaign via `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` custom headers.
 - **Bounced:** Tracked by parsing incoming emails for standard bounce/NDR (Non-Delivery Report) headers tied to the original `X-Campaign-ID` or tracking ID.
+- **Campaign Labeling:** Each campaign should create or reuse a Gmail label and explicitly attach it to sent messages so reply analytics can search both by label and by custom headers.
 
 ### 5.4 Advanced Features (Implemented)
 
@@ -70,7 +71,7 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 ## 6. Non-Functional Requirements & Constraints
 
 - **Google Workspace Limits:** The tool must account for Google's daily email sending quotas (typically 1,500 - 2,000 for Workspace accounts, 400 for trial/free). The UI should warn users if their list exceeds their daily quota.
-- **Performance & Resiliency:** Sending a batch of emails should process quickly. The UI instantly offloads work to an immediate background trigger to avoid the 30-second Add-on execution limit. The background script utilizes time-driven triggers to chunk the sending process and avoid the 6-minute Google Apps Script execution timeout. All API calls (like sending an email or updating the sheet) must be wrapped in exponential backoff logic to prevent failure from sudden rate-limits (Google API 429 Too Many Requests). Background crashes should be logged to a hidden dead-letter `_Logs` spreadsheet tab.
+- **Performance & Resiliency:** Sending a batch of emails should process quickly. The synchronous UI pass sends for up to ~25 seconds (staying under the 30-second `CardService` callback limit), dispatching the first few hundred recipients instantly; any remainder is handed to a continuation trigger created with `after(1)` so it starts immediately rather than after a fixed delay. Background executions use the full 6-minute window, so a typical campaign (≤500 rows) completes its remainder in a single continuation. Each tab of a spreadsheet is an independent campaign (its own config, resume state, scheduled send, and analytics). Concurrent sends against the same tab are serialized with a per-tab lock to prevent double-sends, while sends against different tabs or spreadsheets run in parallel. Large campaigns should be processed with burst-based parallel sends and buffered sheet writes rather than strictly row-by-row operations. All API calls (like sending an email or updating the sheet) must be wrapped in exponential backoff logic to prevent failure from sudden rate-limits (Google API 429 Too Many Requests). Background crashes should be logged to a hidden dead-letter `_Logs` spreadsheet tab, and managed triggers must be cleaned up per spreadsheet to avoid trigger quota exhaustion.
 - **Security:** Ensure the script runs _as the user executing the add-on_ so emails are sent from their account and data access is restricted to their permissions.
 
 ---
@@ -79,11 +80,11 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 
 - **Platform:** Google Workspace Add-on natively integrated into Google Sheets.
 - **UI Framework:** Google Apps Script `CardService` for a native Material Design sidebar experience.
-- **Sending Mechanism:** `GmailApp` or the Advanced Gmail API. _Note: Advanced Gmail API is highly recommended to easily manipulate headers (like `Message-ID` and `Reply-To`) and to inject the tracking pixel securely._
+- **Sending Mechanism:** Raw MIME generation plus the Gmail API. Use burst-based `users.messages.send` calls for throughput, then apply custom campaign labels with `users.messages.modify` so label-based analytics remain reliable.
 - **Tracking Implementation:**
   - _Web App Deployment:_ Deploy a standalone GAS Web App that listens for `GET` requests.
   - _Pixel Injection:_ Append `<img src="YOUR_WEB_APP_URL?sheetId=...&tid=TRACKING_ID&ts=TIMESTAMP" width="1" height="1" />` to the draft's HTML body.
-  - _Webhook Handling:_ When the pixel is loaded, the Web App receives the data, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet using the `tid` via the Sheets API, and updates the status to "Opened".
+  - _Webhook Handling:_ When the pixel is loaded, the Web App receives the data, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet using the `tid` via the Sheets API, and updates the status to `Email opened`. The tracker should tolerate a blank status cell so fast opens are still recorded during burst-based send buffering.
   - _Time-Driven Triggers:_ Set up a background trigger (e.g., every 3 hours) that searches the user's inbox for replies (`in:inbox newer_than:7d -from:me`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via `X-Campaign-ID` and tracking ID custom headers.
 
 ---

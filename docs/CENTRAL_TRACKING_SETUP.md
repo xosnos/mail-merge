@@ -9,7 +9,9 @@ This architecture allows the Mail Merge Add-on to automatically track "Opened" s
 1. **The Pixel:** The Mail Merge Add-on automatically injects a tracking pixel pointing to a Central Web App.
 2. **The Webhook:** When the recipient opens the email, the image loads, pinging the Central Web App.
 3. **The Impersonation:** The Central Web App uses a Google Cloud **Service Account** with Domain-Wide Delegation to impersonate the sender.
-4. **The Update:** Using that impersonated access token, the Central Web App makes a REST API call to the Google Sheets API to update the sender's private spreadsheet, marking the specific row as "Opened".
+4. **The Update:** Using that impersonated access token, the Central Web App makes a REST API call to the Google Sheets API to update the sender's private spreadsheet, marking the specific row as `Email opened`.
+
+The tracker is designed to work with the add-on's burst sender. It resolves rows by Tracking ID even if the sender is still buffering its `Email sent` sheet write, and the sender preserves any `Opened`, `Replied`, or `Bounced` status already written by the tracker or analytics scanner.
 
 ---
 
@@ -58,6 +60,8 @@ You need to deploy the code located in the `central-tracker/` directory as a sta
 11. Click **Deploy**.
 12. **Copy the resulting Web App URL.**
 
+If you are updating an existing versioned web app deployment instead of using the `@HEAD` deployment URL, create a new deployment version and update the add-on's `TRACKING_CENTRAL_URL` property afterward.
+
 ---
 
 ## Phase 4: Add-on Configuration
@@ -72,6 +76,10 @@ Finally, you need to link the Mail Merge Add-on to your newly deployed Central T
 4. Click **Save script properties**.
 
 Once configured, the Add-on will automatically handle open tracking for all users seamlessly!
+
+### Optional Verification Helper
+
+The `central-tracker/core/Test.js` helper now tests OAuth by acquiring an access token directly instead of fetching an unrelated URL. After deployment, run `testOAuth()` and confirm the log shows `Has access!` and an access-token length.
 
 ---
 
@@ -88,3 +96,10 @@ Because tracking pixels fire instantaneously when an email is viewed, there is a
 ### 2. Bounce vs. Reply Resolution
 
 When a message bounces, the `mailer-daemon` returns a Non-Delivery Report. Previously, the Inbox Scanner would erroneously interpret this NDR as a "Reply". This has been fixed: the scanner now explicitly ignores incoming emails containing `mailer-daemon` or `postmaster`, and once a row is marked as `Bounced`, it is locked and will never be overwritten by a `Replied` status.
+
+### 3. Burst-Send Race Conditions
+
+With parallel burst sending, the tracker may receive an open before the add-on has flushed `Email sent` back to the sheet.
+
+- **Mitigation in the Tracker:** `Tracker.js` allows a blank status cell to be updated to `Email opened`.
+- **Mitigation in the Sender:** Before buffered sheet updates are flushed, the sender re-reads the status window and preserves any `Opened`, `Replied`, or `Bounced` value already written by the tracker or analytics scanner.

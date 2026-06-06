@@ -23,7 +23,8 @@ function buildHomepageCard(e) {
   // Load Data
   const drafts = getGmailDrafts();
   const aliases = getGmailAliases();
-  const props = PropertiesService.getDocumentProperties().getProperties();
+  // Saved config is read per-user AND per-tab via getProperty (resolves the active
+  // spreadsheet + sheet), so each tab pre-populates its own last-used settings.
   const sheet = SpreadsheetApp.getActiveSheet();
 
   let headers = [];
@@ -43,9 +44,9 @@ function buildHomepageCard(e) {
   if (drafts.length === 0) {
     draftSelect.addItem('No Drafts Found', '', false);
   } else {
+    const selectedDraftId = config.draftId || getProperty(CONFIG.KEYS.SELECTED_DRAFT_ID);
     drafts.forEach((draft) => {
       const draftId = draft.id;
-      const selectedDraftId = config.draftId || props[CONFIG.KEYS.SELECTED_DRAFT_ID];
       draftSelect.addItem(draft.subject || '(No Subject)', draftId, draftId === selectedDraftId);
     });
   }
@@ -66,7 +67,7 @@ function buildHomepageCard(e) {
       .setTitle('Sender Name')
       .setFieldName('senderName')
       .setHint('e.g. UNAVSA-21 Registration')
-      .setValue(config.senderName || props[CONFIG.KEYS.SENDER_NAME] || '')
+      .setValue(config.senderName || getProperty(CONFIG.KEYS.SENDER_NAME) || '')
   );
 
   // Sender Email
@@ -75,7 +76,7 @@ function buildHomepageCard(e) {
     .setTitle('Sender Email')
     .setFieldName('senderAlias');
 
-  const savedAlias = config.senderAlias || props[CONFIG.KEYS.SENDER_ALIAS];
+  const savedAlias = config.senderAlias || getProperty(CONFIG.KEYS.SENDER_ALIAS);
   aliases.forEach((alias, index) => {
     const isSelected = savedAlias ? alias === savedAlias : index === 0;
     aliasSelect.addItem(alias, alias, isSelected);
@@ -92,7 +93,7 @@ function buildHomepageCard(e) {
     emailColSelect.addItem('No columns found', '', false);
   } else {
     let foundEmailCol = false;
-    const savedEmailCol = config.emailColumn || props[CONFIG.KEYS.EMAIL_COLUMN];
+    const savedEmailCol = config.emailColumn || getProperty(CONFIG.KEYS.EMAIL_COLUMN);
     headers.forEach((header) => {
       if (!header || header.toLowerCase() === 'merge status') return;
       const isSaved = header === savedEmailCol;
@@ -110,8 +111,14 @@ function buildHomepageCard(e) {
       .setTitle('Reply-To Address (Optional)')
       .setFieldName('replyTo')
       .setHint('e.g. conference.registration@unavsa.org')
-      .setValue(config.replyTo || props[CONFIG.KEYS.REPLY_TO] || '')
+      .setValue(config.replyTo || getProperty(CONFIG.KEYS.REPLY_TO) || '')
   );
+
+  // Attachment Tip
+  const attachmentNote = CardService.newTextParagraph().setText(
+    'Tip: Add an "Attachment" column to your sheet with Google Drive links to include personalized attachments.'
+  );
+  configSection.addWidget(attachmentNote);
 
   builder.addSection(configSection);
 
@@ -136,25 +143,17 @@ function buildHomepageCard(e) {
         .setIcon(CardService.Icon.EMAIL)
     );
 
-    analyticsSection.addWidget(
-      CardService.newKeyValue()
-        .setTopLabel('Opened')
-        .setContent(openStr)
-        .setIcon(CardService.Icon.EVENT_PER_DAY)
-    );
+    analyticsSection.addWidget(CardService.newKeyValue().setTopLabel('Opened').setContent(openStr));
 
     analyticsSection.addWidget(
       CardService.newKeyValue()
         .setTopLabel('Replied')
         .setContent(replyStr)
-        .setIcon(CardService.Icon.PEOPLE)
+        .setIcon(CardService.Icon.MULTIPLE_PEOPLE)
     );
 
     analyticsSection.addWidget(
-      CardService.newKeyValue()
-        .setTopLabel('Bounced')
-        .setContent(bounceStr)
-        .setIcon(CardService.Icon.ERROR)
+      CardService.newKeyValue().setTopLabel('Bounced').setContent(bounceStr)
     );
 
     builder.addSection(analyticsSection);
@@ -201,8 +200,8 @@ function buildHomepageCard(e) {
 
   builder.addSection(advancedSection);
 
-  // Batch Progress Section
-  const cache = CacheService.getDocumentCache();
+  // Batch Progress Section (user-scoped cache)
+  const cache = CacheService.getUserCache();
   if (config.spreadsheetId) {
     const cachedProgress = cache.get(CONFIG.KEYS.BATCH_PROGRESS + '_' + config.spreadsheetId);
     if (cachedProgress) {
@@ -224,10 +223,7 @@ function buildHomepageCard(e) {
 
         if (progress.errors > 0) {
           progressSection.addWidget(
-            CardService.newKeyValue()
-              .setTopLabel('Errors')
-              .setContent(progress.errors.toString())
-              .setIcon(CardService.Icon.ERROR)
+            CardService.newKeyValue().setTopLabel('Errors').setContent(progress.errors.toString())
           );
         }
 

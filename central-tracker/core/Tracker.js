@@ -213,7 +213,7 @@ function doGet(e) {
     }
 
     const lower = existingVal.trim().toLowerCase();
-    if (lower.includes('sent') || lower.includes('opened')) {
+    if (!lower || lower.includes('sent') || lower.includes('opened')) {
       // Use script timezone
       const timeZone = Session.getScriptTimeZone();
       const timeString = Utilities.formatDate(new Date(), timeZone, 'MM/dd HH:mm z');

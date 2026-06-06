@@ -8,29 +8,29 @@
  * Improved: attempts to match via X-Campaign-ID header in the NDR, falls back to email regex.
  * @returns {Object} { success: boolean, message: string, bounceCount: number }
  */
-function checkBounces(startTime = Date.now()) {
+function checkBounces(startTime = Date.now(), spreadsheetId, sheetName) {
   try {
     let spreadsheet;
     let sheet;
 
-    // Attempt to load the saved context for background execution
-    const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
-    const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
-
-    if (savedSpreadsheetId && savedSheetName) {
+    // Prefer the explicit tab passed by the scanner; fall back to active (manual UI).
+    if (spreadsheetId && sheetName) {
       try {
-        spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
-        sheet = spreadsheet.getSheetByName(savedSheetName);
+        spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+        sheet = spreadsheet.getSheetByName(sheetName);
       } catch (e) {
-        // Fallback below if the sheet was deleted or permissions changed
+        // Fall through to active context.
       }
     }
 
-    // Fallback to active spreadsheet (for manual UI clicks)
     if (!spreadsheet || !sheet) {
       spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
       if (spreadsheet) {
         sheet = spreadsheet.getActiveSheet();
+      }
+      if (sheet) {
+        spreadsheetId = spreadsheet.getId();
+        sheetName = sheet.getName();
       }
     }
 
@@ -41,7 +41,7 @@ function checkBounces(startTime = Date.now()) {
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', bounceCount: 0 };
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN);
+    const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN, spreadsheetId, sheetName);
     let emailColIndex = configuredEmailCol
       ? headers.findIndex((h) => String(h).trim() === configuredEmailCol)
       : -1;
@@ -55,8 +55,8 @@ function checkBounces(startTime = Date.now()) {
     if (statusColIndex === -1)
       return { success: false, message: "No 'Merge status' column found.", bounceCount: 0 };
 
-    // Get current campaign ID for header matching
-    const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID) || '';
+    // Get current campaign ID for header matching (scoped to this tab)
+    const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID, spreadsheetId, sheetName) || '';
     const sheetNotes = sheet.getDataRange().getNotes();
 
     const MAX_EXECUTION_TIME_MS = 210000; // 3.5 minutes
@@ -90,8 +90,12 @@ function checkBounces(startTime = Date.now()) {
       };
     }
 
-    // Search for recent bounce messages
-    let lastBounceTimeStr = getProperty(CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME);
+    // Search for recent bounce messages (cursor scoped to this tab)
+    let lastBounceTimeStr = getProperty(
+      CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME,
+      spreadsheetId,
+      sheetName
+    );
     let lastBounceTime = lastBounceTimeStr ? parseInt(lastBounceTimeStr, 10) : 0;
 
     let searchQuery = 'from:mailer-daemon in:inbox newer_than:7d';
@@ -165,7 +169,12 @@ function checkBounces(startTime = Date.now()) {
     }
 
     if (maxProcessedTime > lastBounceTime) {
-      setProperty(CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME, maxProcessedTime.toString());
+      setProperty(
+        CONFIG.KEYS.LAST_BOUNCE_THREAD_TIME,
+        maxProcessedTime.toString(),
+        spreadsheetId,
+        sheetName
+      );
     }
 
     if (Object.keys(bouncedEmails).length === 0) {
@@ -234,29 +243,29 @@ function checkBounces(startTime = Date.now()) {
  * Updates "Merge status" to "Replied <timestamp>" for matched rows.
  * @returns {Object} { success: boolean, message: string, replyCount: number }
  */
-function checkReplies(startTime = Date.now()) {
+function checkReplies(startTime = Date.now(), spreadsheetId, sheetName) {
   try {
     let spreadsheet;
     let sheet;
 
-    // Attempt to load the saved context for background execution
-    const savedSpreadsheetId = getProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID);
-    const savedSheetName = getProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME);
-
-    if (savedSpreadsheetId && savedSheetName) {
+    // Prefer the explicit tab passed by the scanner; fall back to active (manual UI).
+    if (spreadsheetId && sheetName) {
       try {
-        spreadsheet = SpreadsheetApp.openById(savedSpreadsheetId);
-        sheet = spreadsheet.getSheetByName(savedSheetName);
+        spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+        sheet = spreadsheet.getSheetByName(sheetName);
       } catch (e) {
-        // Fallback below if the sheet was deleted or permissions changed
+        // Fall through to active context.
       }
     }
 
-    // Fallback to active spreadsheet (for manual UI clicks)
     if (!spreadsheet || !sheet) {
       spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
       if (spreadsheet) {
         sheet = spreadsheet.getActiveSheet();
+      }
+      if (sheet) {
+        spreadsheetId = spreadsheet.getId();
+        sheetName = sheet.getName();
       }
     }
 
@@ -267,7 +276,7 @@ function checkReplies(startTime = Date.now()) {
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', replyCount: 0 };
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN);
+    const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN, spreadsheetId, sheetName);
     let emailColIndex = configuredEmailCol
       ? headers.findIndex((h) => String(h).trim() === configuredEmailCol)
       : -1;
@@ -281,7 +290,7 @@ function checkReplies(startTime = Date.now()) {
     if (statusColIndex === -1)
       return { success: false, message: "No 'Merge status' column found.", replyCount: 0 };
 
-    const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID);
+    const currentCampaignId = getProperty(CONFIG.KEYS.CAMPAIGN_ID, spreadsheetId, sheetName);
     if (!currentCampaignId) {
       return { success: true, message: 'No campaign ID found. Send a batch first.', replyCount: 0 };
     }
@@ -340,10 +349,14 @@ function checkReplies(startTime = Date.now()) {
     }
 
     // Search for recent replies in inbox (not sent by us)
-    let lastReplyTimeStr = getProperty(CONFIG.KEYS.LAST_REPLY_THREAD_TIME);
+    let lastReplyTimeStr = getProperty(
+      CONFIG.KEYS.LAST_REPLY_THREAD_TIME,
+      spreadsheetId,
+      sheetName
+    );
     let lastReplyTime = lastReplyTimeStr ? parseInt(lastReplyTimeStr, 10) : 0;
 
-    const campaignLabel = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL);
+    const campaignLabel = getProperty(CONFIG.KEYS.CAMPAIGN_LABEL, spreadsheetId, sheetName);
     let timeQuery = 'newer_than:7d';
     if (lastReplyTime > 0) {
       timeQuery = `after:${Math.floor(lastReplyTime / 1000)}`;
@@ -417,7 +430,8 @@ function checkReplies(startTime = Date.now()) {
         // Skip messages sent by us
         if (
           fromAddress === Session.getActiveUser().getEmail().toLowerCase() ||
-          getProperty(CONFIG.KEYS.SENDER_ALIAS)?.toLowerCase() === fromAddress
+          getProperty(CONFIG.KEYS.SENDER_ALIAS, spreadsheetId, sheetName)?.toLowerCase() ===
+            fromAddress
         ) {
           return;
         }
@@ -485,7 +499,12 @@ function checkReplies(startTime = Date.now()) {
     }
 
     if (maxProcessedTime > lastReplyTime) {
-      setProperty(CONFIG.KEYS.LAST_REPLY_THREAD_TIME, maxProcessedTime.toString());
+      setProperty(
+        CONFIG.KEYS.LAST_REPLY_THREAD_TIME,
+        maxProcessedTime.toString(),
+        spreadsheetId,
+        sheetName
+      );
     }
 
     return {
@@ -501,30 +520,60 @@ function checkReplies(startTime = Date.now()) {
 /**
  * Unified analytics scanner. Runs bounces then replies.
  * Called by both the sidebar "Refresh Analytics" button and the background trigger.
+ * @param {Object} [e] Trigger event object
  * @returns {Object} { success: boolean, message: string }
  */
-function runAnalyticsScanner() {
+function runAnalyticsScanner(e) {
   try {
-    const bounceResult = checkBounces();
-    const replyResult = checkReplies();
+    setTriggerSpreadsheetIdContext(e);
+    const startTime = Date.now();
 
-    const messages = [];
-    if (bounceResult.success) {
-      messages.push(`Bounces: ${bounceResult.bounceCount || 0}`);
+    // Determine which tabs to scan. A background trigger scans every tab registered
+    // for its spreadsheet; a manual UI refresh scans just the active tab.
+    let spreadsheetId = null;
+    let tabs = [];
+    if (e) {
+      spreadsheetId = getSpreadsheetIdFromTrigger(e);
+      tabs = getCampaignTabs_(spreadsheetId);
+      if (!tabs || tabs.length === 0) {
+        const mappedTab = getSheetNameFromTrigger(e);
+        tabs = mappedTab ? [mappedTab] : [];
+      }
     } else {
-      messages.push('Bounce error: ' + bounceResult.message);
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      spreadsheetId = ss ? ss.getId() : null;
+      const sh = SpreadsheetApp.getActiveSheet();
+      if (sh) tabs = [sh.getName()];
     }
 
-    if (replyResult.success) {
-      messages.push(`Replies: ${replyResult.replyCount || 0}`);
-    } else {
-      messages.push('Reply error: ' + replyResult.message);
+    if (!tabs || tabs.length === 0) {
+      return { success: true, message: 'Analytics scan complete. No campaign tabs to scan.' };
     }
 
-    return {
-      success: bounceResult.success && replyResult.success,
-      message: 'Analytics scan complete. ' + messages.join(' | ')
-    };
+    let totalBounces = 0;
+    let totalReplies = 0;
+    const errors = [];
+
+    tabs.forEach((tab) => {
+      const bounceResult = checkBounces(startTime, spreadsheetId, tab);
+      const replyResult = checkReplies(startTime, spreadsheetId, tab);
+      if (bounceResult.success) {
+        totalBounces += bounceResult.bounceCount || 0;
+      } else {
+        errors.push(`${tab} bounce: ${bounceResult.message}`);
+      }
+      if (replyResult.success) {
+        totalReplies += replyResult.replyCount || 0;
+      } else {
+        errors.push(`${tab} reply: ${replyResult.message}`);
+      }
+    });
+
+    let message = `Analytics scan complete. Bounces: ${totalBounces} | Replies: ${totalReplies}`;
+    if (errors.length > 0) {
+      message += ' | Errors: ' + errors.join('; ');
+    }
+    return { success: errors.length === 0, message };
   } catch (err) {
     if (typeof ErrorLib !== 'undefined') ErrorLib.logError(err, 'runAnalyticsScanner');
     return { success: false, message: 'Analytics scanner crashed: ' + err.message };
@@ -532,27 +581,37 @@ function runAnalyticsScanner() {
 }
 
 /**
- * Creates a time-driven trigger to run the analytics scanner every 3 hours.
- * Stores the trigger ID in PropertiesService for later cleanup.
+ * Ensures a single time-driven analytics scanner runs every 3 hours for the
+ * spreadsheet, and registers the given tab so the scanner covers it. There is one
+ * scanner per spreadsheet (not per tab) to stay well within the trigger quota; the
+ * scanner iterates every registered tab on each run.
+ * @param {string} [spreadsheetId] Defaults to the active spreadsheet.
+ * @param {string} [sheetName] Defaults to the active sheet.
  * @returns {Object} { success: boolean, message: string }
  */
-function setupAnalyticsTrigger() {
+function setupAnalyticsTrigger(spreadsheetId, sheetName) {
   try {
-    // Remove existing trigger first to avoid duplicates
-    removeAnalyticsTrigger();
+    let ssId = spreadsheetId;
+    let tab = sheetName;
+    if (!ssId) {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      ssId = ss ? ss.getId() : null;
+    }
+    if (!tab) {
+      const sh = SpreadsheetApp.getActiveSheet();
+      tab = sh ? sh.getName() : null;
+    }
+
+    // Register this tab for scanning.
+    if (ssId && tab) registerCampaignTab_(ssId, tab);
+
+    // Ensure exactly one analytics trigger per spreadsheet (keyed spreadsheet-wide).
+    removeAnalyticsTrigger(ssId);
 
     const trigger = ScriptApp.newTrigger('runAnalyticsScanner').timeBased().everyHours(3).create();
-
-    setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId());
-
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (ss) {
-      setProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID, ss.getId());
-      const sheet = SpreadsheetApp.getActiveSheet();
-      if (sheet) {
-        setProperty(CONFIG.KEYS.ANALYTICS_SHEET_NAME, sheet.getName());
-      }
-    }
+    mapTriggerToSpreadsheet(trigger, ssId, '');
+    setProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, trigger.getUniqueId(), ssId, '');
+    if (ssId) setProperty(CONFIG.KEYS.ANALYTICS_SPREADSHEET_ID, ssId, ssId, '');
 
     return { success: true, message: 'Background scanning enabled (every 3 hours).' };
   } catch (err) {
@@ -561,13 +620,23 @@ function setupAnalyticsTrigger() {
 }
 
 /**
- * Removes the background analytics trigger.
+ * Removes the spreadsheet's background analytics trigger.
+ * @param {string} [spreadsheetId]
  * @returns {Object} { success: boolean, message: string }
  */
-function removeAnalyticsTrigger() {
+function removeAnalyticsTrigger(spreadsheetId) {
   try {
+    let ssId = spreadsheetId;
+    if (!ssId) {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      ssId = ss ? ss.getId() : null;
+    }
+
+    const triggerId = getProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, ssId, '');
+    if (triggerId) deleteTriggerMapping(triggerId);
+
     if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('runAnalyticsScanner');
+      deleteTriggerByHandler('runAnalyticsScanner', ssId);
     } else {
       const triggers = ScriptApp.getProjectTriggers();
       triggers.forEach((t) => {
@@ -577,7 +646,9 @@ function removeAnalyticsTrigger() {
       });
     }
 
-    PropertiesService.getDocumentProperties().deleteProperty(CONFIG.KEYS.ANALYTICS_TRIGGER_ID);
+    PropertiesService.getUserProperties().deleteProperty(
+      _getCompositeKey(CONFIG.KEYS.ANALYTICS_TRIGGER_ID, ssId, '')
+    );
 
     return { success: true, message: 'Background scanning disabled.' };
   } catch (err) {

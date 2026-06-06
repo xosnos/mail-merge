@@ -5,13 +5,17 @@ A powerful, open-source Google Sheets add-on for personalized mail merges with a
 ## 🚀 Key Features
 
 - **Personalized Emails**: Use `{{Variable Name}}` in your Gmail drafts to automatically pull data from your spreadsheet.
-- **Open Tracking**: Real-time open tracking using a centralized tracking pixel. No extra setup required per user!
+- **Dynamic CC & BCC**: Add "CC" or "BCC" columns to dynamically copy different people on each row's email.
+- **Personalized Attachments**: Include an "Attachment" column with Google Drive links to automatically fetch and attach specific files per recipient.
+- **High-Speed Batch Sending**: Sends campaign emails in parallel bursts with buffered sheet updates so large merges finish much faster than row-by-row processing.
+- **Open Tracking**: Real-time open tracking using a centralized tracking pixel with HMAC-signed URLs, Tracking IDs, and prefetch suppression.
 - **Scheduling**: Schedule your mail merge to run at a future date and time.
 - **Test Emails**: Send a test email to yourself to verify variables and formatting before running a full campaign.
 - **Analytics Dashboard**: Live view of Sent, Opened, Replied, and Bounced metrics directly in your sidebar.
+- **Campaign Labels**: Each campaign creates or reuses a Gmail label so related replies and analytics can be searched efficiently.
 - **Draft Validation**: Automatically checks if your draft's variables match your sheet columns before sending.
 - **Smart Filtering**: Hidden or filtered rows in your spreadsheet are automatically skipped during execution.
-- **Resilient Execution**: Enterprise-grade exponential backoff handles Google API rate limits, with background dead-letter error logging to keep batches running smoothly.
+- **Resilient Execution**: Enterprise-grade exponential backoff handles Google API rate limits, background dead-letter logging captures crashes, and spreadsheet-scoped trigger cleanup prevents time-based trigger buildup.
 
 ## 🛠 Setup & Installation
 
@@ -45,6 +49,7 @@ Detailed guides and architectural documentation are located in the `docs/` direc
 - Open tracking uses a secure, HMAC-signed pixel to ensure your data is never exposed.
 - Scheduled merges are handled by secure, time-driven Google Apps Script triggers.
 
----
+## 📝 Operational Notes
 
-Built with ❤️ for UNAVSA.
+- The add-on uses immediate background triggers to escape the sidebar time limit, then resumes long runs in roughly 1-minute increments when a batch approaches the Apps Script execution ceiling.
+- If you update the central tracker and your `TRACKING_CENTRAL_URL` points to a versioned web app deployment instead of `@HEAD`, redeploy the web app and update the script property so new tracker code is actually served.
