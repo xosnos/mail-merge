@@ -360,6 +360,7 @@ function applyCampaignLabelsToBurst_(sendResults, oauthToken, campaignLabelId) {
 
 /**
  * Replaces {{variables}} in a string with data from a row.
+ * Optimized using a single-pass RegExp substitution with an O(1) data lookup.
  * @param {string} template The text containing {{vars}}
  * @param {Array<string>} headers The array of column headers
  * @param {Array<any>} rowData The array of row data
@@ -367,15 +368,19 @@ function applyCampaignLabelsToBurst_(sendResults, oauthToken, campaignLabelId) {
  */
 function replaceVariables(template, headers, rowData) {
   if (!template) return '';
-  let result = template;
+  
+  // Pre-index headers (trimmed & lowercased) to row data values
+  const dataMap = {};
   headers.forEach((header, index) => {
-    const escapedHeader = header.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const regex = new RegExp('\\{\\{\\s*' + escapedHeader + '\\s*\\}\\}', 'gi');
-    const replacement =
-      rowData[index] !== undefined && rowData[index] !== null ? String(rowData[index]) : '';
-    result = result.replace(regex, replacement);
+    const key = String(header).trim().toLowerCase();
+    dataMap[key] = rowData[index] !== undefined && rowData[index] !== null ? String(rowData[index]) : '';
   });
-  return result;
+
+  // Execute a single-pass global regex substitution
+  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, varName) => {
+    const key = varName.trim().toLowerCase();
+    return dataMap[key] !== undefined ? dataMap[key] : match;
+  });
 }
 
 /**
@@ -466,11 +471,13 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     // Save state in case of UI reload (scoped to this spreadsheet + tab)
     const ssId = config.spreadsheetId;
     const tabName = config.sheetName;
-    setProperty(CONFIG.KEYS.SELECTED_DRAFT_ID, config.draftId, ssId, tabName);
-    setProperty(CONFIG.KEYS.SENDER_NAME, config.senderName || '', ssId, tabName);
-    setProperty(CONFIG.KEYS.SENDER_ALIAS, config.senderAlias || '', ssId, tabName);
-    setProperty(CONFIG.KEYS.REPLY_TO, config.replyTo || '', ssId, tabName);
-    setProperty(CONFIG.KEYS.EMAIL_COLUMN, config.emailColumn, ssId, tabName);
+    setPropertiesBatch({
+      [CONFIG.KEYS.SELECTED_DRAFT_ID]: config.draftId,
+      [CONFIG.KEYS.SENDER_NAME]: config.senderName || '',
+      [CONFIG.KEYS.SENDER_ALIAS]: config.senderAlias || '',
+      [CONFIG.KEYS.REPLY_TO]: config.replyTo || '',
+      [CONFIG.KEYS.EMAIL_COLUMN]: config.emailColumn
+    }, ssId, tabName);
 
     // Check quota
     const quota = MailApp.getRemainingDailyQuota();
@@ -547,11 +554,12 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
     const data = dataRange.getValues();
+    const notes = dataRange.getNotes();
     const hiddenRows = buildHiddenRowMap_(lockSsId, lockTab, data.length);
 
-    const statusValues = sheet.getRange(2, statusColIndex + 1, data.length, 1).getValues();
-    const statusNotes = sheet.getRange(2, statusColIndex + 1, data.length, 1).getNotes();
-    const emailNotes = sheet.getRange(2, emailColIndex + 1, data.length, 1).getNotes();
+    const statusValues = data.map((row) => [row[statusColIndex] || '']);
+    const statusNotes = notes.map((row) => [row[statusColIndex] || '']);
+    const emailNotes = notes.map((row) => [row[emailColIndex] || '']);
     const dirtyWindow = { start: null, end: null };
 
     // Calculate total valid rows to process

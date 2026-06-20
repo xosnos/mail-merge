@@ -26,7 +26,8 @@ const CONFIG = {
     PROGRESS_CACHE: 'YAMM_CLONE_PROGRESS',
     LAST_BOUNCE_THREAD_TIME: 'YAMM_CLONE_LAST_BOUNCE_THREAD_TIME',
     LAST_REPLY_THREAD_TIME: 'YAMM_CLONE_LAST_REPLY_THREAD_TIME',
-    CAMPAIGN_START_TIME: 'YAMM_CLONE_CAMPAIGN_START_TIME'
+    CAMPAIGN_START_TIME: 'YAMM_CLONE_CAMPAIGN_START_TIME',
+    DRAFT_LOAD_LIMIT: 'YAMM_CLONE_DRAFT_LOAD_LIMIT'
   },
   TRACKING: {
     get CENTRAL_URL() {
@@ -364,6 +365,22 @@ function getCampaignTabs_(spreadsheetId) {
 function setProperty(key, value, spreadsheetId, sheetName) {
   const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
   PropertiesService.getUserProperties().setProperty(compositeKey, value);
+}
+
+/**
+ * Sets multiple properties at once using a single batch RPC request.
+ * Isolated per spreadsheet and tab.
+ * @param {Object<string, string>} propertiesMap
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ */
+function setPropertiesBatch(propertiesMap, spreadsheetId, sheetName) {
+  const compositeMap = {};
+  Object.keys(propertiesMap).forEach((key) => {
+    const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
+    compositeMap[compositeKey] = propertiesMap[key];
+  });
+  PropertiesService.getUserProperties().setProperties(compositeMap);
 }
 
 /**

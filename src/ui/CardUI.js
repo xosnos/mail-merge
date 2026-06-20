@@ -21,7 +21,8 @@ function buildHomepageCard(e) {
   const configSection = CardService.newCardSection().setHeader('Configuration');
 
   // Load Data
-  const drafts = getGmailDrafts();
+  const draftLimit = parseInt(getProperty(CONFIG.KEYS.DRAFT_LOAD_LIMIT) || '10', 10);
+  const drafts = getGmailDrafts(draftLimit);
   const aliases = getGmailAliases();
   // Saved config is read per-user AND per-tab via getProperty (resolves the active
   // spreadsheet + sheet), so each tab pre-populates its own last-used settings.
@@ -58,8 +59,17 @@ function buildHomepageCard(e) {
     .setText('🔄 Refresh Drafts')
     .setOnClickAction(CardService.newAction().setFunctionName('handleRefreshUI'));
 
+  const btnSet = CardService.newButtonSet().addButton(refreshDraftsBtn);
+
+  if (drafts.length >= draftLimit) {
+    const loadMoreBtn = CardService.newTextButton()
+      .setText('➕ Load More Drafts')
+      .setOnClickAction(CardService.newAction().setFunctionName('handleLoadMoreDrafts'));
+    btnSet.addButton(loadMoreBtn);
+  }
+
   configSection.addWidget(draftSelect);
-  configSection.addWidget(CardService.newButtonSet().addButton(refreshDraftsBtn));
+  configSection.addWidget(btnSet);
 
   // Sender Name
   configSection.addWidget(
@@ -181,6 +191,22 @@ function buildHomepageCard(e) {
  */
 
 function handleRefreshUI(e) {
+  const updatedCard = buildHomepageCard(e);
+
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(updatedCard))
+    .build();
+}
+
+function handleLoadMoreDrafts(e) {
+  const config = extractConfigFromEvent(e);
+  const ssId = config.spreadsheetId;
+  const tabName = config.sheetName;
+  
+  let currentLimit = parseInt(getProperty(CONFIG.KEYS.DRAFT_LOAD_LIMIT, ssId, tabName) || '10', 10);
+  currentLimit += 10;
+  setProperty(CONFIG.KEYS.DRAFT_LOAD_LIMIT, String(currentLimit), ssId, tabName);
+
   const updatedCard = buildHomepageCard(e);
 
   return CardService.newActionResponseBuilder()
