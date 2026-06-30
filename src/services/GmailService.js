@@ -12,7 +12,7 @@ function getGmailDrafts(limit = 10) {
   try {
     const draftList = Gmail.Users.Drafts.list('me', { maxResults: limit });
     if (!draftList.drafts || draftList.drafts.length === 0) return [];
-    
+
     const results = [];
     draftList.drafts.forEach((d) => {
       try {
@@ -31,7 +31,10 @@ function getGmailDrafts(limit = 10) {
     });
     return results.sort((a, b) => b.date - a.date);
   } catch (e) {
-    console.warn('Advanced Gmail Service list drafts failed, falling back to GmailApp.getDrafts():', e);
+    console.warn(
+      'Advanced Gmail Service list drafts failed, falling back to GmailApp.getDrafts():',
+      e
+    );
     try {
       const drafts = GmailApp.getDrafts();
       return drafts

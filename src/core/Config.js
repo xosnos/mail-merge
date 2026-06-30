@@ -24,6 +24,8 @@ const CONFIG = {
     ANALYTICS_SPREADSHEET_ID: 'YAMM_CLONE_ANALYTICS_SPREADSHEET_ID',
     ANALYTICS_SHEET_NAME: 'YAMM_CLONE_ANALYTICS_SHEET_NAME',
     PROGRESS_CACHE: 'YAMM_CLONE_PROGRESS',
+    BATCH_PROGRESS: 'YAMM_CLONE_PROGRESS',
+    SCHEDULED_TIME: 'YAMM_CLONE_SCHEDULED_TIME',
     LAST_BOUNCE_THREAD_TIME: 'YAMM_CLONE_LAST_BOUNCE_THREAD_TIME',
     LAST_REPLY_THREAD_TIME: 'YAMM_CLONE_LAST_REPLY_THREAD_TIME',
     CAMPAIGN_START_TIME: 'YAMM_CLONE_CAMPAIGN_START_TIME',
@@ -368,6 +370,17 @@ function setProperty(key, value, spreadsheetId, sheetName) {
 }
 
 /**
+ * Deletes a property associated with the tool for the current user, spreadsheet, and tab.
+ * @param {string} key
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ */
+function deleteProperty(key, spreadsheetId, sheetName) {
+  const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
+  PropertiesService.getUserProperties().deleteProperty(compositeKey);
+}
+
+/**
  * Sets multiple properties at once using a single batch RPC request.
  * Isolated per spreadsheet and tab.
  * @param {Object<string, string>} propertiesMap
@@ -425,4 +438,24 @@ function clearProperties(spreadsheetId, sheetName) {
     const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
     props.deleteProperty(compositeKey);
   });
+}
+
+/**
+ * Computes the timezone offset in milliseconds for a given date and timezone ID.
+ * @param {Date} date
+ * @param {string} tzId Timezone ID (e.g. "America/Los_Angeles")
+ * @returns {number} Offset in milliseconds
+ */
+function getTimezoneOffsetMs(date, tzId) {
+  try {
+    if (!tzId) return 0;
+    const formatted = Utilities.formatDate(date, tzId, 'Z'); // e.g. "-0700", "+0530"
+    const sign = formatted.charAt(0) === '-' ? -1 : 1;
+    const hours = parseInt(formatted.substring(1, 3), 10);
+    const minutes = parseInt(formatted.substring(3, 5), 10);
+    return sign * (hours * 60 + minutes) * 60 * 1000;
+  } catch (err) {
+    console.error('Failed to parse timezone offset for ' + tzId, err);
+    return 0;
+  }
 }

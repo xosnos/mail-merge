@@ -1,6 +1,6 @@
 ## Technical Roadmap: Internal Mail Merge System
 
-### Phase 1: Project Setup & Foundational Architecture
+### Phase 1: Project Setup & Foundational Architecture (Completed)
 
 This phase establishes the workspace, permissions, and basic UI shell.
 
@@ -12,7 +12,7 @@ This phase establishes the workspace, permissions, and basic UI shell.
 3. **Establish State Management:**
    - Set up a mechanism using `PropertiesService` with spreadsheet-scoped composite keys to store campaign settings (selected draft ID, sender alias, scheduled time) so the UI can retrieve the state if the user closes and reopens the sidebar without cross-sheet collisions.
 
-### Phase 2: Gmail Integration & Templating Engine
+### Phase 2: Gmail Integration & Templating Engine (Completed)
 
 This phase handles reading drafts and preparing the message content.
 
@@ -43,7 +43,7 @@ This phase is the heavy lifting of mapping data and dispatching emails.
    - Implement execution tracking. GAS scripts time out after 6 minutes. Store the `lastProcessedRow` in `PropertiesService`. If execution nears 5 minutes, gracefully halt and spawn a new time-driven trigger to resume the batch a minute later.
    - Scope all managed time-based triggers by spreadsheet ID so stale resume/background triggers do not accumulate across runs.
 
-### Phase 4: Tracking & Analytics Engine
+### Phase 4: Tracking & Analytics Engine (Completed)
 
 This phase requires setting up external listeners and inbox parsers.
 
@@ -61,7 +61,7 @@ This phase requires setting up external listeners and inbox parsers.
 3. **Automate the Scanner:**
    - Create a time-driven trigger (currently every 3 hours) to run the Inbox Scanner in the background so the Sheet updates automatically, with spreadsheet-scoped cleanup to avoid trigger quota exhaustion.
 
-### Phase 5: Advanced Automation & Production Readiness (Partially Completed)
+### Phase 5: Advanced Automation & Production Readiness (Completed)
 
 This phase hardens the tool for enterprise use and adds scheduling.
 
@@ -81,7 +81,7 @@ This phase hardens the tool for enterprise use and adds scheduling.
      - Does the status match the condition (e.g., Status == 'Opened' or 'Sent')?
      - If yes, trigger the send logic for the follow-up draft and update a new "Follow-up Status" column.
 
-### Phase 6: UI/UX & Polish
+### Phase 6: UI/UX & Polish (Completed)
 
 1. **Real-Time Progress Feedback:**
    - Implement a progress bar in the Sidebar. As the backend processes rows, have the frontend poll a backend function every few seconds to retrieve the `currentProcessedRow` count and update the UI.
@@ -99,11 +99,10 @@ To prevent runtime timeout errors, minimize API rate limit contention, and simpl
 - **Reason for Removal:** Fetches and row-by-row `getRichTextValue()` calls (used as a fallback when bulk reads failed) triggered thousands of spreadsheet API calls, causing the script to hit the 30-second UI execution limit or the 6-minute background execution limit before any email was sent.
 - **Current State:** Only attachments included directly in the constant Gmail draft are sent to all recipients. Drive API calls are eliminated.
 
-### 2. Scheduled Sending (Removed)
+### 2. Scheduled Sending (Restored)
 
-- **Description:** A DateTimePicker in the sidebar allowing users to schedule a batch send for a future date/time. A background trigger was scheduled (`startScheduledBatchSend`) to start the batch.
-- **Reason for Removal:** Reduced overhead of trigger quota management (which is limited to 20 triggers per user per project) and simplified UI/UX.
-- **Current State:** All batch sends start immediately in the background (using the asynchronous continuation triggers to avoid the 30-second UI limit).
+- **Description:** A DateTimePicker in the sidebar allowing users to schedule a batch send for a future date/time. A background trigger is scheduled (`startScheduledBatchSend`) to start the batch at the specified instant.
+- **Current State:** Fully restored and implemented! The user can schedule sends in their local timezone. The system saves the config and schedules a one-time background trigger. Once the trigger fires, it automatically runs the core batch dispatch engine and integrates with continuation triggers if the batch is large.
 
 ### 3. Campaign Metrics Display in UI (Removed)
 

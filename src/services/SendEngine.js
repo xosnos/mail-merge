@@ -368,12 +368,13 @@ function applyCampaignLabelsToBurst_(sendResults, oauthToken, campaignLabelId) {
  */
 function replaceVariables(template, headers, rowData) {
   if (!template) return '';
-  
+
   // Pre-index headers (trimmed & lowercased) to row data values
   const dataMap = {};
   headers.forEach((header, index) => {
     const key = String(header).trim().toLowerCase();
-    dataMap[key] = rowData[index] !== undefined && rowData[index] !== null ? String(rowData[index]) : '';
+    dataMap[key] =
+      rowData[index] !== undefined && rowData[index] !== null ? String(rowData[index]) : '';
   });
 
   // Execute a single-pass global regex substitution
@@ -471,13 +472,17 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     // Save state in case of UI reload (scoped to this spreadsheet + tab)
     const ssId = config.spreadsheetId;
     const tabName = config.sheetName;
-    setPropertiesBatch({
-      [CONFIG.KEYS.SELECTED_DRAFT_ID]: config.draftId,
-      [CONFIG.KEYS.SENDER_NAME]: config.senderName || '',
-      [CONFIG.KEYS.SENDER_ALIAS]: config.senderAlias || '',
-      [CONFIG.KEYS.REPLY_TO]: config.replyTo || '',
-      [CONFIG.KEYS.EMAIL_COLUMN]: config.emailColumn
-    }, ssId, tabName);
+    setPropertiesBatch(
+      {
+        [CONFIG.KEYS.SELECTED_DRAFT_ID]: config.draftId,
+        [CONFIG.KEYS.SENDER_NAME]: config.senderName || '',
+        [CONFIG.KEYS.SENDER_ALIAS]: config.senderAlias || '',
+        [CONFIG.KEYS.REPLY_TO]: config.replyTo || '',
+        [CONFIG.KEYS.EMAIL_COLUMN]: config.emailColumn
+      },
+      ssId,
+      tabName
+    );
 
     // Check quota
     const quota = MailApp.getRemainingDailyQuota();
@@ -589,8 +594,9 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     // Initialize progress Cache (user-scoped to prevent cross-user collisions)
     const cache = CacheService.getUserCache();
+    const progressKey = CONFIG.KEYS.PROGRESS_CACHE + '_' + lockSsId;
     cache.put(
-      CONFIG.KEYS.PROGRESS_CACHE,
+      progressKey,
       JSON.stringify({ current: 0, total: totalToSend, status: 'sending' }),
       600
     );
@@ -715,7 +721,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       );
 
       cache.put(
-        CONFIG.KEYS.PROGRESS_CACHE,
+        progressKey,
         JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }),
         600
       );
@@ -741,7 +747,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         mapTriggerToSpreadsheet(trigger, lockSsId, lockTab);
 
         cache.put(
-          CONFIG.KEYS.PROGRESS_CACHE,
+          progressKey,
           JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }),
           7200
         );
@@ -870,7 +876,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     // Update progress on completion
     cache.put(
-      CONFIG.KEYS.PROGRESS_CACHE,
+      progressKey,
       JSON.stringify({ current: sentCount, total: totalToSend, status: 'complete' }),
       600
     );
@@ -954,7 +960,19 @@ function resumeBatchSend(e) {
  */
 function getMergeProgress() {
   const cache = CacheService.getUserCache();
-  const progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
+  let ssId = null;
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) ssId = ss.getId();
+  } catch (e) {
+    // Ignore
+  }
+  const key = ssId ? CONFIG.KEYS.PROGRESS_CACHE + '_' + ssId : CONFIG.KEYS.PROGRESS_CACHE;
+  let progressStr = cache.get(key);
+  if (!progressStr && ssId) {
+    // fallback to unscoped key just in case
+    progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
+  }
   if (!progressStr) {
     return { current: 0, total: 0, status: 'idle' };
   }
@@ -985,11 +1003,114 @@ function startBackgroundBatchEmails(config) {
   }
 }
 
+/**
+ * Schedules a batch send for a future date/time.
+ * @param {Object} config The settings from the UI
+ * @param {number} scheduleEpochMs Epoch time in milliseconds when the campaign should start
+ * @returns {Object} {success: boolean, message: string}
+ */
+function scheduleBatchEmails(config, scheduleEpochMs) {
+  try {
+    const spreadsheetId = config.spreadsheetId;
+    const sheetName = config.sheetName;
+
+    // Save the config so the trigger handler can fetch it
+    setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), spreadsheetId, sheetName);
+
+    // Save the scheduled time
+    setProperty(CONFIG.KEYS.SCHEDULED_TIME, String(scheduleEpochMs), spreadsheetId, sheetName);
+
+    // Clean up any existing triggers for this tab to avoid collisions/duplicate schedules
+    if (typeof cleanupOrphanedTriggers === 'function') {
+      cleanupOrphanedTriggers(spreadsheetId, sheetName);
+    }
+
+    // Create the one-time trigger at the scheduled time
+    const scheduledDate = new Date(scheduleEpochMs);
+    const trigger = ScriptApp.newTrigger('startScheduledBatchSend')
+      .timeBased()
+      .at(scheduledDate)
+      .create();
+
+    // Map trigger to spreadsheet/tab context so getSpreadsheetIdFromTrigger can resolve it
+    if (typeof mapTriggerToSpreadsheet === 'function') {
+      mapTriggerToSpreadsheet(trigger, spreadsheetId, sheetName);
+    }
+
+    // Format local time for the response message
+    const tz =
+      config.userTimezone ||
+      (SpreadsheetApp.getActiveSpreadsheet() &&
+        SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone()) ||
+      'GMT';
+    const formattedDate = Utilities.formatDate(scheduledDate, tz, 'yyyy-MM-dd HH:mm z');
+
+    return {
+      success: true,
+      message: `Campaign scheduled successfully for ${formattedDate}!`
+    };
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') {
+      ErrorLib.logError(err, 'scheduleBatchEmails');
+    }
+    return { success: false, message: 'Scheduling failed: ' + err.message };
+  }
+}
+
+/**
+ * Trigger handler called when the scheduled campaign time is reached.
+ * Resolves context, cleans up itself, and starts the batch send.
+ * @param {Object} e Trigger event object
+ */
+function startScheduledBatchSend(e) {
+  try {
+    // Resolve and pin spreadsheet context from the trigger mapping
+    if (typeof setTriggerSpreadsheetIdContext === 'function') {
+      setTriggerSpreadsheetIdContext(e);
+    }
+    const spreadsheetId = getSpreadsheetIdFromTrigger(e);
+    const sheetName = getSheetNameFromTrigger(e);
+
+    // Clean up trigger mapping and the trigger itself
+    if (e && e.triggerUid && typeof deleteTriggerMapping === 'function') {
+      deleteTriggerMapping(e.triggerUid);
+    }
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
+    }
+
+    // Clear the scheduled time flag so the UI knows we are no longer in scheduled state
+    if (typeof deleteProperty === 'function') {
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+    }
+
+    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
+    if (!configJson) {
+      console.log('startScheduledBatchSend: No saved config found.');
+      return;
+    }
+
+    const config = JSON.parse(configJson);
+
+    // Call sendBatchEmails(config, 0, false) (with isUiContext = false)
+    console.log('startScheduledBatchSend: Starting scheduled batch send.');
+    const result = sendBatchEmails(config, 0, false);
+    console.log('startScheduledBatchSend completed with result: ' + JSON.stringify(result));
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') {
+      ErrorLib.logError(err, 'startScheduledBatchSend');
+    }
+    console.error('startScheduledBatchSend crashed: ', err);
+  }
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     replaceVariables,
     sendBatchEmails,
     sendTestEmail,
-    startBackgroundBatchEmails
+    startBackgroundBatchEmails,
+    scheduleBatchEmails,
+    startScheduledBatchSend
   };
 }
