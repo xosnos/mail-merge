@@ -53,9 +53,7 @@ function buildHomepageCard(e) {
 
       const userTz =
         config.userTimezone ||
-        (SpreadsheetApp.getActiveSpreadsheet() &&
-          SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone()) ||
-        'GMT';
+        (typeof getSpreadsheetTimezoneSafe === 'function' ? getSpreadsheetTimezoneSafe() : 'GMT');
       const formattedDate = Utilities.formatDate(
         new Date(scheduledTime),
         userTz,
@@ -330,9 +328,9 @@ function extractConfigFromEvent(e) {
           const tzId =
             e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
               ? e.commonEventObject.timeZone.id
-              : (SpreadsheetApp.getActiveSpreadsheet() &&
-                  SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone()) ||
-                'GMT';
+              : typeof getSpreadsheetTimezoneSafe === 'function'
+                ? getSpreadsheetTimezoneSafe()
+                : 'GMT';
           const offsetMs =
             typeof getTimezoneOffsetMs === 'function'
               ? getTimezoneOffsetMs(new Date(rawEpoch), tzId)
@@ -360,9 +358,9 @@ function extractConfigFromEvent(e) {
           const tzId =
             e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
               ? e.commonEventObject.timeZone.id
-              : (SpreadsheetApp.getActiveSpreadsheet() &&
-                  SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone()) ||
-                'GMT';
+              : typeof getSpreadsheetTimezoneSafe === 'function'
+                ? getSpreadsheetTimezoneSafe()
+                : 'GMT';
           const offsetMs =
             typeof getTimezoneOffsetMs === 'function'
               ? getTimezoneOffsetMs(new Date(rawEpoch), tzId)
@@ -385,9 +383,9 @@ function extractConfigFromEvent(e) {
             const tzId =
               e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
                 ? e.commonEventObject.timeZone.id
-                : (SpreadsheetApp.getActiveSpreadsheet() &&
-                    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone()) ||
-                  'GMT';
+                : typeof getSpreadsheetTimezoneSafe === 'function'
+                  ? getSpreadsheetTimezoneSafe()
+                  : 'GMT';
             const offsetMs =
               typeof getTimezoneOffsetMs === 'function'
                 ? getTimezoneOffsetMs(new Date(rawEpoch), tzId)

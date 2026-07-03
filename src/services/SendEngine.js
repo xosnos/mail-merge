@@ -1040,9 +1040,7 @@ function scheduleBatchEmails(config, scheduleEpochMs) {
     // Format local time for the response message
     const tz =
       config.userTimezone ||
-      (SpreadsheetApp.getActiveSpreadsheet() &&
-        SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone()) ||
-      'GMT';
+      (typeof getSpreadsheetTimezoneSafe === 'function' ? getSpreadsheetTimezoneSafe() : 'GMT');
     const formattedDate = Utilities.formatDate(scheduledDate, tz, 'yyyy-MM-dd HH:mm z');
 
     return {
@@ -1068,8 +1066,10 @@ function startScheduledBatchSend(e) {
     if (typeof setTriggerSpreadsheetIdContext === 'function') {
       setTriggerSpreadsheetIdContext(e);
     }
-    const spreadsheetId = getSpreadsheetIdFromTrigger(e);
-    const sheetName = getSheetNameFromTrigger(e);
+    const spreadsheetId =
+      typeof getSpreadsheetIdFromTrigger === 'function' ? getSpreadsheetIdFromTrigger(e) : null;
+    const sheetName =
+      typeof getSheetNameFromTrigger === 'function' ? getSheetNameFromTrigger(e) : null;
 
     // Clean up trigger mapping and the trigger itself
     if (e && e.triggerUid && typeof deleteTriggerMapping === 'function') {

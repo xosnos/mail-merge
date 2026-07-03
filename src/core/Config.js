@@ -459,3 +459,20 @@ function getTimezoneOffsetMs(date, tzId) {
     return 0;
   }
 }
+
+/**
+ * Safely retrieves the active spreadsheet's timezone, with a default fallback.
+ * @returns {string} Timezone ID
+ */
+function getSpreadsheetTimezoneSafe() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) {
+      const tz = ss.getSpreadsheetTimeZone();
+      if (tz) return tz;
+    }
+  } catch (err) {
+    console.error('Failed to retrieve spreadsheet timezone context', err);
+  }
+  return 'GMT';
+}
