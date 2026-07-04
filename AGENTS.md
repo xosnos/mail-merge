@@ -161,10 +161,10 @@ For each new feature or roadmap phase:
    - Agent halts execution to request manual code-review alignment.
 2. **Execution:**
    - Upon "LGTM," Agent modifies `src/` files locally.
-   - Agent runs `npm run format:write` to fix any formatting issues.
-   - Agent runs `npm run lint` to lint the code.
-   - Agent runs `npm run test` to run the tests.
-   - Agent automatically runs `npx @google/clasp push -f` to push source code directly to the live Google Workspace instance.
+   - Agent runs `bun run format:write` to fix any formatting issues.
+   - Agent runs `bun run lint` to lint the code.
+   - Agent runs `bun test` to run the tests.
+   - Agent automatically runs `bunx @google/clasp push -f` to push source code directly to the live Google Workspace instance.
    - Agent marks `task.md` checklist items as complete.
 3. **Verification:**
    - Agent provides exact steps for the Developer to verify the changes inside the Google Sheet/Gmail ecosystem.

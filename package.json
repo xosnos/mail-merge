@@ -10,7 +10,7 @@
     "pull:tracker": "cd central-tracker && clasp pull",
     "deploy:addon": "cd src && clasp push && clasp deploy",
     "deploy:tracker": "cd central-tracker && clasp push && clasp deploy",
-    "deploy": "npm run deploy:tracker && npm run deploy:addon",
+    "deploy": "bun run deploy:tracker && bun run deploy:addon",
     "test": "jest",
     "lint": "eslint src/ central-tracker/",
     "format:check": "prettier --check .",
