@@ -63,7 +63,7 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 ### 5.4 Advanced Features (Implemented)
 
 - **Test Email Functionality:** Allows the user to send a test email to themselves before running the whole batch to verify formatting and variable substitution. (Note: CC/BCC headers are stripped from test sends so test emails go exclusively to the testing user).
-- **Immediate Background Execution:** To bypass the 30-second UI limit, all mail merges run instantly in the background using Apps Script time-driven continuation triggers. Future-dated scheduled sending is omitted.
+- **Immediate & Scheduled Background Execution:** Mail merges run in the background using Apps Script time-driven triggers. Campaigns can be sent immediately or scheduled for a future date and time (with local timezone offset calculation, scheduled status cards, and cancellation controls).
 - **Smart Filtering:** The tool will respect hidden or filtered rows in the spreadsheet, skipping them seamlessly during the batch send process.
 
 ---
@@ -82,6 +82,7 @@ The tool must accurately update the "Merge Status" column with the highest-achie
 - **Platform:** Google Workspace Add-on natively integrated into Google Sheets.
 - **UI Framework:** Google Apps Script `CardService` for a native Material Design sidebar experience.
 - **Sending Mechanism:** Raw MIME generation plus the Gmail API. Use burst-based `users.messages.send` calls for throughput, then apply custom campaign labels with `users.messages.modify` so label-based analytics remain reliable.
+- **Scheduled Sends:** Store scheduled send configuration in `PropertiesService` composite keys and set a time-driven trigger (`ScriptApp.newTrigger().timeBased().at(date)`). On execution, `startScheduledBatchSend` initializes the batch engine seamlessly.
 - **Tracking Implementation:**
   - _Web App Deployment:_ Deploy a standalone GAS Web App that listens for `GET` requests.
   - _Pixel Injection:_ Append `<img src="YOUR_WEB_APP_URL?sheetId=...&tid=TRACKING_ID&ts=TIMESTAMP" width="1" height="1" />` to the draft's HTML body.

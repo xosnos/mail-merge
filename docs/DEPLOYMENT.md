@@ -11,7 +11,7 @@ Because the Add-on is designed to be installed from the Workspace Marketplace an
 3. Name the project "UNAVSA Mail Merge Add-on".
 4. Copy the new **Script ID** from the Project Settings (gear icon).
 5. Update the `.clasp.json` file in your local repository with this new `scriptId`.
-6. Run `clasp push` to upload the add-on code to the new standalone project.
+6. Run `bun run push:addon` (or `clasp push` inside `src/`) to upload the add-on code to the new standalone project.
 
 ## Phase 2: Google Cloud Project (GCP) Configuration
 
@@ -66,7 +66,7 @@ The Central Tracker Web App needs to be deployed so the pixel tracking system ha
 
 1. Follow the [Central Tracker Setup Guide](./CENTRAL_TRACKING_SETUP.md) to deploy the central tracker script and obtain its URL.
 2. Update the Add-on's Script Properties (`TRACKING_CENTRAL_URL` and `TRACKING_SECRET_KEY`) with the deployed Tracker details.
-3. Push the add-on code using `clasp push`.
+3. Push the add-on code using `bun run push:addon`.
 
 ### 1.5 Manifest URL Fetch Allowlist
 
@@ -78,7 +78,7 @@ The add-on now sends mail and applies campaign labels through direct Gmail REST 
 
 ### 2. Publish the Workspace Add-on
 
-1. **CRITICAL:** Open `src/core/Config.js` and ensure `IS_DEV_MODE` is set to `false`. If you forget this, all store users will see a `[DEV]` tag on their add-on. Push the add-on code using `clasp push` if you made changes.
+1. **CRITICAL:** Open `src/core/Config.js` and ensure `IS_DEV_MODE` is set to `false`. If you forget this, all store users will see a `[DEV]` tag on their add-on. Push the add-on code using `bun run push:addon` if you made changes. Alternatively, run `bun run deploy` to push and deploy both tracker and add-on.
 2. Go back to your Google Cloud Console.
 3. Navigate to **APIs & Services > Google Workspace Marketplace SDK**.
 4. Go to the **App Configuration** tab.

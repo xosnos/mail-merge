@@ -34,6 +34,9 @@ The interface is a vertical, card-based form (`src/ui/CardUI.js`) that guides th
     - **Reply-To**: An optional field to direct replies to a different address.
 3.  **Data Mapping**:
     - The system requires knowing which column contains the recipient email addresses. The UI provides a dropdown populated by the current sheet's headers.
+4.  **Send Options (Immediate vs Scheduled)**:
+    - **Send Instantly**: Dispatches emails immediately in background bursts.
+    - **Schedule Send**: Allows setting a future date and time in the user's local timezone. When scheduled, CardUI displays a Scheduled Send status card with campaign details, a refresh option, and a "Cancel Scheduled Send" button.
 
 ### 2.3 Validation & Safety
 
@@ -45,9 +48,9 @@ Before any bulk action occurs, the system provides several safety nets to build 
 
 ### 2.4 Execution & The "Invisible" UI
 
-Once the user clicks "Send Batch", the heavy lifting happens asynchronously.
+Once the user clicks "Send Batch" or "Schedule Batch", the heavy lifting happens asynchronously.
 
-- **Progress Indication**: While the backend processes rows, the UI polls `CacheService` to display real-time progress.
+- **Progress & Schedule Status Indication**: For immediate runs, the UI polls `CacheService` to display real-time progress. For scheduled runs, CardUI presents a dedicated scheduled status card showing the target execution timestamp and cancellation controls.
 - **The Merge Status Column**: The Add-on automatically appends a "Merge Status" column to the far right of the sheet data. As emails are sent, cells immediately populate with `Sent <timestamp>`.
 - **Zero-Interaction Tracking**: The true power of the UX is what happens _after_ the sidebar is closed. The user does not need to log into a dashboard. As recipients interact with the emails, the "Merge Status" column automatically updates:
   - `Sent` upgrades to `Opened <timestamp>` when the tracking pixel fires.

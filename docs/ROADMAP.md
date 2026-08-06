@@ -89,9 +89,9 @@ This phase hardens the tool for enterprise use and adds scheduling.
    - Highlight invalid email formats in the Sheet before sending.
    - Provide clear error messages in the sidebar if the Web App URL isn't configured or if the user is out of quota.
 
-## Removed and Simplified Features (For Production Stability & Performance)
+## Streamlined Features & Restorations
 
-To prevent runtime timeout errors, minimize API rate limit contention, and simplify user workflow, the following features were removed/streamlined. They can be recovered from Git history if re-implemented in the future:
+To prevent runtime timeout errors, minimize API rate limit contention, and simplify user workflow, the following features were streamlined or restored. They reflect current production capabilities:
 
 ### 1. Personalized Attachments (Removed)
 
@@ -99,10 +99,10 @@ To prevent runtime timeout errors, minimize API rate limit contention, and simpl
 - **Reason for Removal:** Fetches and row-by-row `getRichTextValue()` calls (used as a fallback when bulk reads failed) triggered thousands of spreadsheet API calls, causing the script to hit the 30-second UI execution limit or the 6-minute background execution limit before any email was sent.
 - **Current State:** Only attachments included directly in the constant Gmail draft are sent to all recipients. Drive API calls are eliminated.
 
-### 2. Scheduled Sending (Restored)
+### 2. Scheduled Sending (Restored & Enhanced)
 
 - **Description:** A DateTimePicker in the sidebar allowing users to schedule a batch send for a future date/time. A background trigger is scheduled (`startScheduledBatchSend`) to start the batch at the specified instant.
-- **Current State:** Fully restored and implemented! The user can schedule sends in their local timezone. The system saves the config and schedules a one-time background trigger. Once the trigger fires, it automatically runs the core batch dispatch engine and integrates with continuation triggers if the batch is large.
+- **Current State:** Fully restored and enhanced in Phase 6. Users can schedule sends in their local timezone with explicit offset calculations. The system saves configuration to composite keys, displays scheduled campaign details in the sidebar, provides cancellation controls, and executes the core batch engine via background triggers upon arrival.
 
 ### 3. Campaign Metrics Display in UI (Removed)
 

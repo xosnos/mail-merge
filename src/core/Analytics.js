@@ -40,7 +40,7 @@ function checkBounces(startTime = Date.now(), spreadsheetId, sheetName) {
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', bounceCount: 0 };
 
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
     const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN, spreadsheetId, sheetName);
     let emailColIndex = configuredEmailCol
       ? headers.findIndex((h) => String(h).trim() === configuredEmailCol)
@@ -186,7 +186,7 @@ function checkBounces(startTime = Date.now(), spreadsheetId, sheetName) {
     }
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
-    const data = dataRange.getValues();
+    const data = dataRange.getDisplayValues();
     let bounceCount = 0;
     const tz = spreadsheet.getSpreadsheetTimeZone() || 'GMT';
     const timeString = Utilities.formatDate(new Date(), tz, 'MM/dd HH:mm z');
@@ -275,7 +275,7 @@ function checkReplies(startTime = Date.now(), spreadsheetId, sheetName) {
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return { success: false, message: 'No data in sheet.', replyCount: 0 };
 
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
     const configuredEmailCol = getProperty(CONFIG.KEYS.EMAIL_COLUMN, spreadsheetId, sheetName);
     let emailColIndex = configuredEmailCol
       ? headers.findIndex((h) => String(h).trim() === configuredEmailCol)
@@ -330,7 +330,7 @@ function checkReplies(startTime = Date.now(), spreadsheetId, sheetName) {
 
     // Build a lookup of emails → row numbers from the sheet
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
-    const data = dataRange.getValues();
+    const data = dataRange.getDisplayValues();
     const emailToRow = {};
 
     data.forEach((row, idx) => {
@@ -726,13 +726,13 @@ function getCampaignMetrics(spreadsheetId, sheetName) {
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return metrics;
 
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
     const statusColIndex = headers.findIndex((h) => String(h).toLowerCase() === 'merge status');
 
     if (statusColIndex === -1) return metrics;
 
     const statusRange = sheet.getRange(2, statusColIndex + 1, lastRow - 1, 1);
-    const statuses = statusRange.getValues();
+    const statuses = statusRange.getDisplayValues();
 
     statuses.forEach((row) => {
       const status = String(row[0]).trim().toLowerCase();

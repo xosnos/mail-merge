@@ -137,7 +137,7 @@ function validateTemplate(draftId, sheet) {
 
   // Get headers from Row 1
   const headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
-  const headers = headerRange.getValues()[0].map((h) => String(h).trim());
+  const headers = headerRange.getDisplayValues()[0].map((h) => String(h).trim());
 
   // Get variables from Draft
   const variables = getDraftVariables(draftId);

@@ -9,6 +9,11 @@ This document outlines the current feature set of the UNAVSA Mail Merge tool com
   - _Our Tool:_ This feature is now fully supported. The tool automatically detects "CC" and "BCC" columns in the sheet and dynamically injects them into the email headers for each row.
   - _Implementation Path:_ Achieved. `src/services/SendEngine.js` checks for "CC" and "BCC" columns and processes them alongside draft defaults.
 
+- **Scheduled Sending:**
+  - _YAMM:_ Allows users to pick a date and time to automatically send their mail merge.
+  - _Our Tool:_ Fully supported. Built into CardUI with local timezone calculations, background trigger scheduling (`startScheduledBatchSend`), scheduled campaign status cards, and cancellation controls.
+  - _Implementation Path:_ Achieved. `src/ui/CardUI.js` and `src/services/SendEngine.js`.
+
 - **Follow-up Campaigns in the Same Thread:**
   - _YAMM:_ A massive selling point is the ability to easily send a follow-up draft (e.g., "Just bubbling this up!") _in the same email thread_ to people who didn't reply to the first batch.
   - _Our Tool:_ Listed as "Phase 5" in the Roadmap, but not yet implemented.

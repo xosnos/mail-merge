@@ -7,6 +7,7 @@ A powerful, open-source Google Sheets add-on for personalized mail merges with a
 - **Personalized Emails**: Use `{{Variable Name}}` in your Gmail drafts to automatically pull data from your spreadsheet.
 - **Dynamic CC & BCC**: Add "CC" or "BCC" columns to dynamically copy different people on each row's email.
 - **High-Speed Batch Sending**: Sends campaign emails in parallel bursts with buffered sheet updates so large merges finish much faster than row-by-row processing.
+- **Scheduled Sending**: Schedule email dispatch for a specific future date and time with local timezone offset calculations and interactive cancellation support.
 - **Open & Bounce Tracking**: Real-time open tracking using a centralized tracking pixel with HMAC-signed URLs, Tracking IDs, and bounce checking that logs directly to your spreadsheet.
 - **Test Emails**: Send a test email to yourself to verify variables and formatting before running a full campaign (forces CC/BCC to empty for testing security).
 - **Campaign Labels**: Each campaign creates or reuses a Gmail label so related replies and analytics can be searched efficiently.
@@ -37,7 +38,7 @@ Detailed guides and architectural documentation are located in the `docs/` direc
 - `src/`: The core add-on script (Google Apps Script) organized into core, services, ui, and utils.
 - `central-tracker/`: Standalone script for the centralized open tracking pixel.
 - `docs/`: Guides and technical documentation.
-- `package.json`: Contains Bun scripts for local development and Clasp deployment.
+- `package.json`: Contains Bun scripts (`bun run deploy`, `bun run lint`, `bun test`) for local development and Clasp deployment.
 - `jsconfig.json`: IDE configuration for cross-file Google Apps Script global scope resolution.
 
 ## 🔒 Security & Privacy

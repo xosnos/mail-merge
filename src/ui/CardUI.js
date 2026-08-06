@@ -325,17 +325,7 @@ function extractConfigFromEvent(e) {
       if (input.dateTimeInput) {
         if (input.dateTimeInput.msSinceEpoch) {
           const rawEpoch = Number(input.dateTimeInput.msSinceEpoch);
-          const tzId =
-            e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
-              ? e.commonEventObject.timeZone.id
-              : typeof getSpreadsheetTimezoneSafe === 'function'
-                ? getSpreadsheetTimezoneSafe()
-                : 'GMT';
-          const offsetMs =
-            typeof getTimezoneOffsetMs === 'function'
-              ? getTimezoneOffsetMs(new Date(rawEpoch), tzId)
-              : 0;
-          return new Date(rawEpoch - offsetMs).toISOString();
+          return new Date(rawEpoch).toISOString();
         }
         return '';
       }
@@ -355,17 +345,7 @@ function extractConfigFromEvent(e) {
       if (typeof rawVal === 'object') {
         if (rawVal.msSinceEpoch) {
           const rawEpoch = Number(rawVal.msSinceEpoch);
-          const tzId =
-            e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
-              ? e.commonEventObject.timeZone.id
-              : typeof getSpreadsheetTimezoneSafe === 'function'
-                ? getSpreadsheetTimezoneSafe()
-                : 'GMT';
-          const offsetMs =
-            typeof getTimezoneOffsetMs === 'function'
-              ? getTimezoneOffsetMs(new Date(rawEpoch), tzId)
-              : 0;
-          return new Date(rawEpoch - offsetMs).toISOString();
+          return new Date(rawEpoch).toISOString();
         }
         return '';
       }
@@ -380,17 +360,7 @@ function extractConfigFromEvent(e) {
         if (parsed && typeof parsed === 'object') {
           if (parsed.msSinceEpoch) {
             const rawEpoch = Number(parsed.msSinceEpoch);
-            const tzId =
-              e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
-                ? e.commonEventObject.timeZone.id
-                : typeof getSpreadsheetTimezoneSafe === 'function'
-                  ? getSpreadsheetTimezoneSafe()
-                  : 'GMT';
-            const offsetMs =
-              typeof getTimezoneOffsetMs === 'function'
-                ? getTimezoneOffsetMs(new Date(rawEpoch), tzId)
-                : 0;
-            return new Date(rawEpoch - offsetMs).toISOString();
+            return new Date(rawEpoch).toISOString();
           }
           return '';
         }
@@ -419,7 +389,11 @@ function extractConfigFromEvent(e) {
     userTimezone:
       e && e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
         ? e.commonEventObject.timeZone.id
-        : '',
+        : e && e.userTimezone
+          ? e.userTimezone
+          : typeof getSpreadsheetTimezoneSafe === 'function'
+            ? getSpreadsheetTimezoneSafe()
+            : '',
     spreadsheetId: SpreadsheetApp.getActiveSpreadsheet()
       ? SpreadsheetApp.getActiveSpreadsheet().getId()
       : null,

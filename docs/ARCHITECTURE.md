@@ -57,7 +57,7 @@ The user interface is built using the Google Workspace Add-on `CardService`. Unl
 
 Because Google Apps Script executions are stateless and have strict time limits, state must be persisted across executions. To support running across multiple spreadsheets — **and multiple tabs within one spreadsheet** — for the same user without state collision, all properties are stored using **composite keys scoped by both spreadsheet and tab** (e.g., `${spreadsheetId}_${sheetName}_BATCH_CONFIG`). This makes each tab a fully independent campaign: its own draft/sender config, resume state, campaign ID/label, and reply/bounce cursors.
 
-- **PropertiesService**: Used to store long-term campaign configuration (Selected Draft ID, Sender Alias, Reply-To) scoped to the user and the specific spreadsheet **+ tab**.
+- **PropertiesService**: Used to store long-term campaign configuration (Selected Draft ID, Sender Alias, Reply-To, Scheduled Send timestamp/config) scoped to the user and the specific spreadsheet **+ tab**.
 - **Trigger Context Mapping**: Background time-driven triggers execute without an active UI context (no active spreadsheet/sheet). To resolve this, the system maps `triggerUid` to the originating `{spreadsheetId, sheetName}` in `UserProperties` when a trigger is created (`mapTriggerToSpreadsheet`), and `setTriggerSpreadsheetIdContext` restores that scope at the start of the background run so it loads the correct tab's composite-keyed state. The analytics scanner is mapped at the spreadsheet level and iterates a per-spreadsheet registry of campaign tabs (`registerCampaignTab_` / `getCampaignTabs_`) so a single scanner covers every sent tab. The analytics scanner trigger automatically expires and deletes itself once all campaign tabs on the spreadsheet exceed 7 days (checked via `CAMPAIGN_START_TIME`).
 - **CacheService**: Used for short-term, high-frequency state, specifically caching the progress of a running batch so the UI can poll and display a progress bar.
 - **Dead-Letter Logging**: Errors from asynchronous background processes (like time-driven triggers) are sent to a hidden `_Logs` sheet tab via `src/utils/ErrorLib.js`.
@@ -70,6 +70,7 @@ The system uses raw MIME construction plus the Gmail API rather than `MailApp` o
 - **Custom Headers**: During construction, the system injects `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` into the email headers. These are invisible to the recipient but essential for tracking replies, bounces, and tracker row resolution.
 - **Tracking Pixel Injection**: The HTML body is parsed, and an `<img>` tag pointing to the Central Tracker Web App is injected before the closing `</body>` tag.
 - **Burst Sending**: Instead of sending one message at a time, the engine prepares bursts of rows, then calls the Gmail REST send endpoint in parallel with `UrlFetchApp.fetchAll`. This reduces per-message network overhead substantially.
+- **Scheduled Sending**: Users can specify a future send date and time in their local timezone. The system saves the campaign configuration to `PropertiesService` composite keys and creates a one-time time-driven trigger (`ScriptApp.newTrigger().timeBased().at(date)`). When triggered, `startScheduledBatchSend` invokes the core batch dispatch engine and seamlessly manages continuation triggers if the batch size exceeds execution limits. Users can view scheduled status and cancel scheduled sends directly from the CardUI sidebar.
 - **Bulk Hidden Row Mapping**: Instead of running row-by-row `isRowHiddenByUser` / `isRowHiddenByFilter` calls (which trigger slow individual Sheets API requests), the system calls `Sheets.Spreadsheets.get` (Sheets API v4) to retrieve row metadata for the entire sheet in a single request, reducing execution time from minutes to under 100ms.
 - **Buffered Sheet Writes**: Merge statuses, status notes, and Tracking ID notes are updated in memory and flushed back to the sheet as a contiguous row window instead of performing per-row `setValue()` and `setNote()` calls.
 - **Campaign Labels**: After each successful send, the engine applies the campaign label with `users.messages.modify`. The send payload itself is not relied on for custom label propagation.
@@ -92,7 +93,7 @@ While opens are tracked instantly via the Central Tracker, replies and bounces a
 
 Provides reusable helper functions for interacting with the user's Gmail account.
 
-- **Draft Retrieval**: Fetches all available drafts and sorts them by date (`getGmailDrafts`).
+- **Draft Retrieval**: Fetches available drafts with paginated loading and sorts them by date (`getGmailDrafts`).
 - **Alias Management**: Retrieves all "Send As" aliases available to the active user (`getGmailAliases`).
 - **Variable Extraction**: Parses the content of a draft (Subject, Body, CC, BCC) to extract and return unique `{{variable}}` tags (`getDraftVariables`).
 
