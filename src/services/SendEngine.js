@@ -359,27 +359,138 @@ function applyCampaignLabelsToBurst_(sendResults, oauthToken, campaignLabelId) {
 }
 
 /**
+ * Helper to extract link URL from a RichTextValue object.
+ * Handles both main text links and run-level links (Smart Chips, Hyperlinks).
+ * @param {GoogleAppsScript.Spreadsheet.RichTextValue|null} richText
+ * @returns {string|null}
+ */
+function extractLinkUrl_(richText) {
+  if (!richText) return null;
+  const mainUrl = richText.getLinkUrl();
+  if (mainUrl) return mainUrl;
+  const runs = richText.getRuns();
+  if (runs) {
+    for (let i = 0; i < runs.length; i++) {
+      const runUrl = runs[i].getLinkUrl();
+      if (runUrl) return runUrl;
+    }
+  }
+  return null;
+}
+
+/**
+ * Utility function to unescape common HTML entities and strip HTML tags from a string.
+ * @param {string} str
+ * @returns {string}
+ */
+function cleanVariableName_(str) {
+  if (!str) return '';
+  return str
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Normalizes double curly braces split by HTML tags in Gmail rich text content.
+ * e.g. {<span>{</span>Var}<span>}</span> -> {{Var}}
+ * @param {string} str
+ * @returns {string}
+ */
+function normalizeBraces_(str) {
+  if (!str) return '';
+  return str
+    .replace(/<span[^>]*>\s*\{\s*<\/span>/gi, '{')
+    .replace(/<span[^>]*>\s*\}\s*<\/span>/gi, '}')
+    .replace(/\{\s*<[^>]*>\s*\{/g, '{{')
+    .replace(/\}\s*<[^>]*>\s*\}/g, '}}');
+}
+
+/**
  * Replaces {{variables}} in a string with data from a row.
- * Optimized using a single-pass RegExp substitution with an O(1) data lookup.
+ * Supports HTML draft formatting (bold/highlight/spans inside or surrounding braces),
+ * HTML entities (&nbsp;), and smart chips/hyperlink pills via richTextRowData.
  * @param {string} template The text containing {{vars}}
  * @param {Array<string>} headers The array of column headers
- * @param {Array<any>} rowData The array of row data
+ * @param {Array<any>} rowData The array of row display values
+ * @param {Array<any>} [richTextRowData] Optional array of RichTextValue objects
  * @returns {string} The processed string
  */
-function replaceVariables(template, headers, rowData) {
+function replaceVariables(template, headers, rowData, richTextRowData = null) {
   if (!template) return '';
-  
-  // Pre-index headers (trimmed & lowercased) to row data values
+
+  const normalizedTemplate = normalizeBraces_(template);
+
+  // Pre-index headers (trimmed & lowercased) to row data values & link URLs
   const dataMap = {};
+  const urlMap = {};
+
   headers.forEach((header, index) => {
     const key = String(header).trim().toLowerCase();
-    dataMap[key] = rowData[index] !== undefined && rowData[index] !== null ? String(rowData[index]) : '';
+    const displayVal =
+      rowData && rowData[index] !== undefined && rowData[index] !== null
+        ? String(rowData[index])
+        : '';
+    dataMap[key] = displayVal;
+
+    let linkUrl = null;
+    if (richTextRowData && richTextRowData[index]) {
+      linkUrl = extractLinkUrl_(richTextRowData[index]);
+    }
+    if (linkUrl) {
+      urlMap[key] = linkUrl;
+    }
   });
 
-  // Execute a single-pass global regex substitution
-  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, varName) => {
-    const key = varName.trim().toLowerCase();
-    return dataMap[key] !== undefined ? dataMap[key] : match;
+  // Regex matching {{ ... }} placeholders
+  const regex = /\{\{\s*([\s\S]*?)\s*\}\}/g;
+
+  return normalizedTemplate.replace(regex, (fullMatch, innerContent, offset, fullString) => {
+    const cleanVarName = cleanVariableName_(innerContent);
+    const key = cleanVarName.toLowerCase();
+
+    if (dataMap[key] === undefined) {
+      return fullMatch; // Variable not in headers, keep unchanged
+    }
+
+    const value = dataMap[key];
+    const linkUrl = urlMap[key];
+
+    // Check context in template: is this variable inside an href="..." attribute?
+    const prefix = fullString.substring(Math.max(0, offset - 10), offset);
+    const isInsideHref = /href=["']?$/i.test(prefix);
+
+    let replacement = value;
+
+    if (isInsideHref && linkUrl) {
+      replacement = linkUrl;
+    } else if (linkUrl && linkUrl !== value) {
+      // Smart Chip / Hyperlink Pill: if substituted into HTML text context and has a link URL,
+      // and display value is not already the URL:
+      const isHtmlText = /<[a-z][\s\S]*>/i.test(template);
+      if (isHtmlText && !isInsideHref) {
+        const textLabel = value || linkUrl;
+        replacement = `<a href="${linkUrl.replace(/&/g, '&amp;')}">${textLabel}</a>`;
+      } else if (!isInsideHref) {
+        replacement = linkUrl;
+      }
+    }
+
+    // Preserve inner HTML tags/styling inside {{ ... }} if present (e.g. {{<b>Name</b>}} or {{<span style="...">Name</span>}})
+    if (/<[^>]*>/.test(innerContent)) {
+      const cleanRegex = new RegExp(cleanVarName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      if (cleanRegex.test(innerContent)) {
+        return innerContent.replace(cleanRegex, replacement);
+      }
+    }
+
+    return replacement;
   });
 }
 
@@ -401,22 +512,25 @@ function generateCampaignId_(sheetId) {
 function sendTestEmail(config) {
   try {
     const sheet = SpreadsheetApp.getActiveSheet();
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+    const headers = headerRange.getDisplayValues()[0].map((h) => String(h).trim());
 
     if (sheet.getLastRow() < 2) {
       throw new Error('No data found in Row 2 to test with.');
     }
 
-    const testRow = sheet.getRange(2, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const testRowRange = sheet.getRange(2, 1, 1, sheet.getLastColumn());
+    const testRow = testRowRange.getDisplayValues()[0];
+    const testRowRichText = testRowRange.getRichTextValues()[0];
     const draft = GmailApp.getDraft(config.draftId);
     if (!draft) throw new Error('Draft not found.');
 
     const msg = draft.getMessage();
 
     // Process templates
-    const subject = replaceVariables(msg.getSubject(), headers, testRow);
-    const htmlBody = replaceVariables(msg.getBody(), headers, testRow);
-    const plainBody = replaceVariables(msg.getPlainBody(), headers, testRow);
+    const subject = replaceVariables(msg.getSubject(), headers, testRow, testRowRichText);
+    const htmlBody = replaceVariables(msg.getBody(), headers, testRow, testRowRichText);
+    const plainBody = replaceVariables(msg.getPlainBody(), headers, testRow, testRowRichText);
 
     // The recipient is the active user for tests
     const recipient = Session.getActiveUser().getEmail();
@@ -471,13 +585,17 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     // Save state in case of UI reload (scoped to this spreadsheet + tab)
     const ssId = config.spreadsheetId;
     const tabName = config.sheetName;
-    setPropertiesBatch({
-      [CONFIG.KEYS.SELECTED_DRAFT_ID]: config.draftId,
-      [CONFIG.KEYS.SENDER_NAME]: config.senderName || '',
-      [CONFIG.KEYS.SENDER_ALIAS]: config.senderAlias || '',
-      [CONFIG.KEYS.REPLY_TO]: config.replyTo || '',
-      [CONFIG.KEYS.EMAIL_COLUMN]: config.emailColumn
-    }, ssId, tabName);
+    setPropertiesBatch(
+      {
+        [CONFIG.KEYS.SELECTED_DRAFT_ID]: config.draftId,
+        [CONFIG.KEYS.SENDER_NAME]: config.senderName || '',
+        [CONFIG.KEYS.SENDER_ALIAS]: config.senderAlias || '',
+        [CONFIG.KEYS.REPLY_TO]: config.replyTo || '',
+        [CONFIG.KEYS.EMAIL_COLUMN]: config.emailColumn
+      },
+      ssId,
+      tabName
+    );
 
     // Check quota
     const quota = MailApp.getRemainingDailyQuota();
@@ -534,7 +652,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       };
     }
 
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+    const headers = headerRange.getDisplayValues()[0].map((h) => String(h).trim());
 
     // Determine which columns are email and merge status
     const emailColIndex = headers.indexOf(config.emailColumn);
@@ -553,7 +672,8 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
     }
 
     const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
-    const data = dataRange.getValues();
+    const data = dataRange.getDisplayValues();
+    const richTextData = dataRange.getRichTextValues();
     const notes = dataRange.getNotes();
     const hiddenRows = buildHiddenRowMap_(lockSsId, lockTab, data.length);
 
@@ -587,10 +707,14 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       };
     }
 
-    // Initialize progress Cache (user-scoped to prevent cross-user collisions)
+    // Initialize progress Cache (sheet-scoped to prevent collisions)
     const cache = CacheService.getUserCache();
+    const progressKey =
+      typeof getProgressCacheKey === 'function'
+        ? getProgressCacheKey(config.spreadsheetId, config.sheetName)
+        : CONFIG.KEYS.PROGRESS_CACHE + '_' + lockSsId;
     cache.put(
-      CONFIG.KEYS.PROGRESS_CACHE,
+      progressKey,
       JSON.stringify({ current: 0, total: totalToSend, status: 'sending' }),
       600
     );
@@ -715,7 +839,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       );
 
       cache.put(
-        CONFIG.KEYS.PROGRESS_CACHE,
+        progressKey,
         JSON.stringify({ current: sentCount, total: totalToSend, status: 'sending' }),
         600
       );
@@ -741,7 +865,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
         mapTriggerToSpreadsheet(trigger, lockSsId, lockTab);
 
         cache.put(
-          CONFIG.KEYS.PROGRESS_CACHE,
+          progressKey,
           JSON.stringify({ current: sentCount, total: totalToSend, status: 'paused' }),
           7200
         );
@@ -780,15 +904,16 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       }
 
       // Process variables
-      const subject = replaceVariables(subjectTemplate, headers, row);
-      let htmlBody = replaceVariables(htmlTemplate, headers, row);
-      const plainBody = replaceVariables(plainTemplate, headers, row);
+      const rowRichText = richTextData[i];
+      const subject = replaceVariables(subjectTemplate, headers, row, rowRichText);
+      let htmlBody = replaceVariables(htmlTemplate, headers, row, rowRichText);
+      const plainBody = replaceVariables(plainTemplate, headers, row, rowRichText);
 
       let cc = ccColIndex !== -1 && row[ccColIndex] ? String(row[ccColIndex]).trim() : '';
-      if (!cc) cc = replaceVariables(ccTemplate, headers, row);
+      if (!cc) cc = replaceVariables(ccTemplate, headers, row, rowRichText);
 
       let bcc = bccColIndex !== -1 && row[bccColIndex] ? String(row[bccColIndex]).trim() : '';
-      if (!bcc) bcc = replaceVariables(bccTemplate, headers, row);
+      if (!bcc) bcc = replaceVariables(bccTemplate, headers, row, rowRichText);
 
       const currentAttachments = attachments;
 
@@ -870,7 +995,7 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
 
     // Update progress on completion
     cache.put(
-      CONFIG.KEYS.PROGRESS_CACHE,
+      progressKey,
       JSON.stringify({ current: sentCount, total: totalToSend, status: 'complete' }),
       600
     );
@@ -950,13 +1075,46 @@ function resumeBatchSend(e) {
 
 /**
  * Reads the current progress from CacheService.
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
  * @returns {Object} JSON object with current, total, and status
  */
-function getMergeProgress() {
+function getMergeProgress(spreadsheetId, sheetName) {
   const cache = CacheService.getUserCache();
-  const progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
+  let ssId = spreadsheetId || null;
+  let tabName = sheetName || null;
+  if (!ssId || !tabName) {
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) {
+        if (!ssId) ssId = ss.getId();
+        if (!tabName) {
+          const sh = ss.getActiveSheet();
+          if (sh) tabName = sh.getName();
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+  const key =
+    typeof getProgressCacheKey === 'function'
+      ? getProgressCacheKey(ssId, tabName)
+      : ssId
+        ? CONFIG.KEYS.PROGRESS_CACHE + '_' + ssId
+        : CONFIG.KEYS.PROGRESS_CACHE;
+
+  let progressStr = cache.get(key);
+  if (!progressStr && ssId) {
+    // fallback to legacy spreadsheet-only key
+    progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE + '_' + ssId);
+  }
   if (!progressStr) {
-    return { current: 0, total: 0, status: 'idle' };
+    // fallback to unscoped key
+    progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
+  }
+  if (!progressStr) {
+    return { current: 0, processed: 0, total: 0, status: 'idle' };
   }
   return JSON.parse(progressStr);
 }
@@ -985,11 +1143,190 @@ function startBackgroundBatchEmails(config) {
   }
 }
 
+/**
+ * Schedules a batch send for a future date/time.
+ * @param {Object} config The settings from the UI
+ * @param {number} scheduleEpochMs Epoch time in milliseconds when the campaign should start
+ * @returns {Object} {success: boolean, message: string}
+ */
+function scheduleBatchEmails(config, scheduleEpochMs) {
+  const spreadsheetId = config.spreadsheetId;
+  const sheetName = config.sheetName;
+
+  let sendMarker = null;
+  if (typeof acquireSendLock_ === 'function') {
+    sendMarker = acquireSendLock_(spreadsheetId, sheetName);
+    if (!sendMarker) {
+      return {
+        success: false,
+        message: 'Cannot schedule send while a batch is currently active on this tab.'
+      };
+    }
+  }
+
+  try {
+    // Save the scheduled config separately from active BATCH_CONFIG
+    setProperty(CONFIG.KEYS.SCHEDULED_CONFIG, JSON.stringify(config), spreadsheetId, sheetName);
+    setProperty(CONFIG.KEYS.SCHEDULED_TIME, String(scheduleEpochMs), spreadsheetId, sheetName);
+
+    // Clean up any existing triggers for this tab to avoid collisions/duplicate schedules
+    if (typeof cleanupOrphanedTriggers === 'function') {
+      cleanupOrphanedTriggers(spreadsheetId, sheetName);
+    }
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
+    }
+
+    // Create the one-time trigger at the scheduled time wrapped with exponential backoff
+    const scheduledDate = new Date(scheduleEpochMs);
+    const createTriggerFn = () =>
+      ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(scheduledDate).create();
+
+    const trigger =
+      typeof callWithBackoff === 'function' ? callWithBackoff(createTriggerFn) : createTriggerFn();
+
+    if (trigger) {
+      // Store trigger unique ID for verification in startScheduledBatchSend
+      setProperty(
+        CONFIG.KEYS.SCHEDULED_TRIGGER_ID,
+        trigger.getUniqueId(),
+        spreadsheetId,
+        sheetName
+      );
+
+      // Map trigger to spreadsheet/tab context so getSpreadsheetIdFromTrigger can resolve it
+      if (typeof mapTriggerToSpreadsheet === 'function') {
+        mapTriggerToSpreadsheet(trigger, spreadsheetId, sheetName);
+      }
+    }
+
+    // Format local time for the response message
+    const tz =
+      config.userTimezone ||
+      (typeof getSpreadsheetTimezoneSafe === 'function' ? getSpreadsheetTimezoneSafe() : 'GMT');
+    const formattedDate = Utilities.formatDate(scheduledDate, tz, 'yyyy-MM-dd HH:mm z');
+
+    return {
+      success: true,
+      message: `Campaign scheduled successfully for ${formattedDate}!`
+    };
+  } catch (err) {
+    // Roll back saved schedule state on failure
+    if (typeof deleteProperty === 'function') {
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+      deleteProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
+    }
+    if (typeof ErrorLib !== 'undefined') {
+      ErrorLib.logError(err, 'scheduleBatchEmails');
+    }
+    return { success: false, message: 'Scheduling failed: ' + err.message };
+  } finally {
+    if (sendMarker && typeof releaseSendLock_ === 'function') {
+      releaseSendLock_(sendMarker);
+    }
+  }
+}
+
+/**
+ * Trigger handler called when the scheduled campaign time is reached.
+ * Resolves context, cleans up itself, and starts the batch send.
+ * @param {Object} e Trigger event object
+ */
+function startScheduledBatchSend(e) {
+  try {
+    // Resolve and pin spreadsheet context from the trigger mapping
+    if (typeof setTriggerSpreadsheetIdContext === 'function') {
+      setTriggerSpreadsheetIdContext(e);
+    }
+    const spreadsheetId =
+      typeof getSpreadsheetIdFromTrigger === 'function' ? getSpreadsheetIdFromTrigger(e) : null;
+    const sheetName =
+      typeof getSheetNameFromTrigger === 'function' ? getSheetNameFromTrigger(e) : null;
+
+    // Validate expected trigger UID to prevent race conditions from duplicate or old triggers
+    const storedTriggerId = getProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
+    if (e && e.triggerUid && storedTriggerId && storedTriggerId !== e.triggerUid) {
+      console.log(
+        `startScheduledBatchSend: Trigger UID mismatch (event: ${e.triggerUid}, stored: ${storedTriggerId}). Skipping.`
+      );
+      return;
+    }
+
+    let sendMarker = null;
+    if (typeof acquireSendLock_ === 'function') {
+      sendMarker = acquireSendLock_(spreadsheetId, sheetName);
+      if (!sendMarker) {
+        console.log('startScheduledBatchSend: Tab lock busy. Skipping execution.');
+        return;
+      }
+    }
+
+    try {
+      // Clean up trigger mapping and the trigger itself
+      if (e && e.triggerUid && typeof deleteTriggerMapping === 'function') {
+        deleteTriggerMapping(e.triggerUid);
+      }
+      if (typeof deleteTriggerByHandler === 'function') {
+        deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
+      }
+
+      // Clear the scheduled state flags
+      if (typeof deleteProperty === 'function') {
+        deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+        deleteProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
+      }
+
+      let configJson = getProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+
+      // Fall back to BATCH_CONFIG if SCHEDULED_CONFIG was not set separately
+      if (!configJson) {
+        configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
+      }
+
+      if (!configJson) {
+        console.log('startScheduledBatchSend: No saved config found.');
+        return;
+      }
+
+      // Clean up SCHEDULED_CONFIG property and write active BATCH_CONFIG property
+      if (typeof deleteProperty === 'function') {
+        deleteProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+      }
+      setProperty(CONFIG.KEYS.BATCH_CONFIG, configJson, spreadsheetId, sheetName);
+
+      const config = JSON.parse(configJson);
+
+      // Release the scheduling sendMarker before calling sendBatchEmails which acquires its own lock
+      if (sendMarker && typeof releaseSendLock_ === 'function') {
+        releaseSendLock_(sendMarker);
+        sendMarker = null;
+      }
+
+      // Call sendBatchEmails(config, 0, false) (with isUiContext = false)
+      console.log('startScheduledBatchSend: Starting scheduled batch send.');
+      const result = sendBatchEmails(config, 0, false);
+      console.log('startScheduledBatchSend completed with result: ' + JSON.stringify(result));
+    } finally {
+      if (sendMarker && typeof releaseSendLock_ === 'function') {
+        releaseSendLock_(sendMarker);
+      }
+    }
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') {
+      ErrorLib.logError(err, 'startScheduledBatchSend');
+    }
+    console.error('startScheduledBatchSend crashed: ', err);
+  }
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     replaceVariables,
     sendBatchEmails,
     sendTestEmail,
-    startBackgroundBatchEmails
+    startBackgroundBatchEmails,
+    scheduleBatchEmails,
+    startScheduledBatchSend
   };
 }

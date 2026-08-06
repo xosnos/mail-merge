@@ -67,8 +67,13 @@ function cleanupOrphanedTriggers(spreadsheetId, sheetName) {
 
 function deleteTriggerByHandler(handlerName, spreadsheetId, sheetName) {
   try {
+    const hasExplicitSpreadsheetFilter =
+      spreadsheetId !== undefined && spreadsheetId !== null && spreadsheetId !== '';
+    const hasExplicitSheetFilter =
+      sheetName !== undefined && sheetName !== null && sheetName !== '';
+
     let targetSpreadsheetId = spreadsheetId || null;
-    if (!targetSpreadsheetId) {
+    if (!targetSpreadsheetId && !hasExplicitSpreadsheetFilter) {
       try {
         const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
         if (activeSpreadsheet) targetSpreadsheetId = activeSpreadsheet.getId();
@@ -87,20 +92,29 @@ function deleteTriggerByHandler(handlerName, spreadsheetId, sheetName) {
         typeof getTriggerMapping === 'function' ? getTriggerMapping(trigger.getUniqueId()) : null;
       const mappedSpreadsheetId = mapping ? mapping.spreadsheetId : null;
       const mappedSheetName = mapping ? mapping.sheetName : null;
+
+      // When explicit spreadsheet/sheet filters are provided, require valid trigger mapping
+      if (hasExplicitSpreadsheetFilter || hasExplicitSheetFilter) {
+        if (!mapping || !mappedSpreadsheetId) return;
+      }
+
       if (
         targetSpreadsheetId &&
-        mappedSpreadsheetId &&
-        mappedSpreadsheetId !== targetSpreadsheetId
+        (!mappedSpreadsheetId || mappedSpreadsheetId !== targetSpreadsheetId)
       ) {
         return;
       }
-      if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {
+      if (targetSheetName && (!mappedSheetName || mappedSheetName !== targetSheetName)) {
         return;
       }
 
       deletedTriggerIds[trigger.getUniqueId()] = true;
       if (typeof deleteTriggerMapping === 'function') deleteTriggerMapping(trigger.getUniqueId());
-      ScriptApp.deleteTrigger(trigger);
+      try {
+        ScriptApp.deleteTrigger(trigger);
+      } catch (e) {
+        // Ignore if already deleted
+      }
     };
 
     ScriptApp.getProjectTriggers().forEach(maybeDeleteTrigger);
@@ -114,7 +128,9 @@ function deleteTriggerByHandler(handlerName, spreadsheetId, sheetName) {
       // Ignore if not bound to doc
     }
   } catch (err) {
-    console.error('Failed to delete trigger: ' + err);
+    if (typeof ErrorLib !== 'undefined') {
+      ErrorLib.logError(err, 'deleteTriggerByHandler');
+    }
   }
 }
 
@@ -137,7 +153,7 @@ function validateTemplate(draftId, sheet) {
 
   // Get headers from Row 1
   const headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
-  const headers = headerRange.getValues()[0].map((h) => String(h).trim());
+  const headers = headerRange.getDisplayValues()[0].map((h) => String(h).trim());
 
   // Get variables from Draft
   const variables = getDraftVariables(draftId);

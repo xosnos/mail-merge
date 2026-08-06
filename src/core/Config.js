@@ -24,6 +24,10 @@ const CONFIG = {
     ANALYTICS_SPREADSHEET_ID: 'YAMM_CLONE_ANALYTICS_SPREADSHEET_ID',
     ANALYTICS_SHEET_NAME: 'YAMM_CLONE_ANALYTICS_SHEET_NAME',
     PROGRESS_CACHE: 'YAMM_CLONE_PROGRESS',
+    BATCH_PROGRESS: 'YAMM_CLONE_PROGRESS',
+    SCHEDULED_TIME: 'YAMM_CLONE_SCHEDULED_TIME',
+    SCHEDULED_CONFIG: 'YAMM_CLONE_SCHEDULED_CONFIG',
+    SCHEDULED_TRIGGER_ID: 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
     LAST_BOUNCE_THREAD_TIME: 'YAMM_CLONE_LAST_BOUNCE_THREAD_TIME',
     LAST_REPLY_THREAD_TIME: 'YAMM_CLONE_LAST_REPLY_THREAD_TIME',
     CAMPAIGN_START_TIME: 'YAMM_CLONE_CAMPAIGN_START_TIME',
@@ -355,7 +359,49 @@ function getCampaignTabs_(spreadsheetId) {
 }
 
 /**
- * Saves a single key-value pair to User Properties (per-user, prevents cross-user collisions).
+ * Returns the primary document-scoped property store with fallback to user properties.
+ * @returns {GoogleAppsScript.Properties.Properties}
+ */
+function _getAppPropertiesStore() {
+  try {
+    const docProps = PropertiesService.getDocumentProperties();
+    if (docProps) return docProps;
+  } catch (e) {
+    // DocumentProperties unavailable in current execution frame
+  }
+  return PropertiesService.getUserProperties();
+}
+
+/**
+ * Builds a cache key for progress status isolated by spreadsheet ID and sheet name.
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ * @returns {string}
+ */
+function getProgressCacheKey(spreadsheetId, sheetName) {
+  let id = spreadsheetId || _activeTriggerSpreadsheetId;
+  let tab = sheetName !== undefined && sheetName !== null ? sheetName : _activeTriggerSheetName;
+  if (!id || tab === undefined || tab === null) {
+    try {
+      if (!id) {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        if (ss) id = ss.getId();
+      }
+      if (tab === undefined || tab === null) {
+        const sh = SpreadsheetApp.getActiveSheet();
+        if (sh) tab = sh.getName();
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+  if (id && tab) return `${CONFIG.KEYS.PROGRESS_CACHE}_${id}_${tab}`;
+  if (id) return `${CONFIG.KEYS.PROGRESS_CACHE}_${id}`;
+  return CONFIG.KEYS.PROGRESS_CACHE;
+}
+
+/**
+ * Saves a single key-value pair to Document/User Properties.
  * Isolated per spreadsheet AND tab so each tab keeps independent state.
  * @param {string} key
  * @param {string} value
@@ -364,7 +410,23 @@ function getCampaignTabs_(spreadsheetId) {
  */
 function setProperty(key, value, spreadsheetId, sheetName) {
   const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
-  PropertiesService.getUserProperties().setProperty(compositeKey, value);
+  _getAppPropertiesStore().setProperty(compositeKey, value);
+}
+
+/**
+ * Deletes a property associated with the tool for the current user, spreadsheet, and tab.
+ * @param {string} key
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
+ */
+function deleteProperty(key, spreadsheetId, sheetName) {
+  const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
+  _getAppPropertiesStore().deleteProperty(compositeKey);
+  try {
+    PropertiesService.getUserProperties().deleteProperty(compositeKey);
+  } catch (e) {
+    // Ignore secondary store cleanup errors
+  }
 }
 
 /**
@@ -380,11 +442,11 @@ function setPropertiesBatch(propertiesMap, spreadsheetId, sheetName) {
     const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
     compositeMap[compositeKey] = propertiesMap[key];
   });
-  PropertiesService.getUserProperties().setProperties(compositeMap);
+  _getAppPropertiesStore().setProperties(compositeMap);
 }
 
 /**
- * Gets a value from User Properties, isolated per spreadsheet and tab.
+ * Gets a value from Document/User Properties, isolated per spreadsheet and tab.
  * @param {string} key
  * @param {string} [spreadsheetId]
  * @param {string} [sheetName]
@@ -392,7 +454,14 @@ function setPropertiesBatch(propertiesMap, spreadsheetId, sheetName) {
  */
 function getProperty(key, spreadsheetId, sheetName) {
   const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
-  const val = PropertiesService.getUserProperties().getProperty(compositeKey);
+  let val = _getAppPropertiesStore().getProperty(compositeKey);
+  if (val === null || val === undefined) {
+    try {
+      val = PropertiesService.getUserProperties().getProperty(compositeKey);
+    } catch (e) {
+      // Ignore
+    }
+  }
   if (val !== null && val !== undefined) {
     return val;
   }
@@ -409,20 +478,71 @@ function getProperty(key, spreadsheetId, sheetName) {
   }
   if (id) {
     const legacyKey = `${id}_${key}`;
-    return PropertiesService.getUserProperties().getProperty(legacyKey);
+    val = _getAppPropertiesStore().getProperty(legacyKey);
+    if (val === null || val === undefined) {
+      try {
+        val = PropertiesService.getUserProperties().getProperty(legacyKey);
+      } catch (e) {
+        // Ignore
+      }
+    }
+    return val;
   }
   return null;
 }
 
 /**
- * Clears all properties associated with the tool for the current user, spreadsheet, and tab.
+ * Clears all properties associated with the tool for the current spreadsheet and tab.
  * @param {string} [spreadsheetId]
  * @param {string} [sheetName]
  */
 function clearProperties(spreadsheetId, sheetName) {
-  const props = PropertiesService.getUserProperties();
+  const store = _getAppPropertiesStore();
+  const userStore = PropertiesService.getUserProperties();
   Object.values(CONFIG.KEYS).forEach((key) => {
     const compositeKey = _getCompositeKey(key, spreadsheetId, sheetName);
-    props.deleteProperty(compositeKey);
+    store.deleteProperty(compositeKey);
+    try {
+      userStore.deleteProperty(compositeKey);
+    } catch (e) {
+      // Ignore
+    }
   });
+}
+
+/**
+ * Computes the timezone offset in milliseconds for a given date and timezone ID.
+ * @param {Date} date
+ * @param {string} tzId Timezone ID (e.g. "America/Los_Angeles")
+ * @returns {number} Offset in milliseconds
+ */
+function getTimezoneOffsetMs(date, tzId) {
+  try {
+    if (!tzId) return 0;
+    const formatted = Utilities.formatDate(date, tzId, 'Z'); // e.g. "-0700", "+0530"
+    const sign = formatted.charAt(0) === '-' ? -1 : 1;
+    const hours = parseInt(formatted.substring(1, 3), 10);
+    const minutes = parseInt(formatted.substring(3, 5), 10);
+    return sign * (hours * 60 + minutes) * 60 * 1000;
+  } catch (err) {
+    console.error('Failed to parse timezone offset for ' + tzId, err);
+    return 0;
+  }
+}
+
+/**
+ * Safely retrieves the active spreadsheet's timezone, with a default fallback.
+ * @returns {string} Timezone ID
+ */
+function getSpreadsheetTimezoneSafe() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) {
+      const tz = ss.getSpreadsheetTimeZone();
+      if (tz) return tz;
+    }
+  } catch (err) {
+    console.error('Failed to retrieve spreadsheet timezone context', err);
+  }
+  return 'GMT';
 }

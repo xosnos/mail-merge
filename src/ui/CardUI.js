@@ -18,6 +18,75 @@ function buildHomepageCard(e) {
   const title = CONFIG.IS_DEV_MODE ? '🛠️ UNAVSA Mail Merge [DEV]' : 'UNAVSA Mail Merge';
   builder.setHeader(CardService.newCardHeader().setTitle(title));
 
+  // Check if a future campaign is scheduled
+  const scheduledTimeStr = getProperty(
+    CONFIG.KEYS.SCHEDULED_TIME,
+    config.spreadsheetId,
+    config.sheetName
+  );
+  if (scheduledTimeStr) {
+    const scheduledTime = parseInt(scheduledTimeStr, 10);
+    if (!isNaN(scheduledTime) && scheduledTime > Date.now()) {
+      const scheduledSection = CardService.newCardSection().setHeader('⏰ Campaign Scheduled');
+
+      let subject = 'Unknown Draft';
+      try {
+        const savedConfigJson =
+          getProperty(
+            CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
+            config.spreadsheetId,
+            config.sheetName
+          ) || getProperty(CONFIG.KEYS.BATCH_CONFIG, config.spreadsheetId, config.sheetName);
+        if (savedConfigJson) {
+          const savedConfig = JSON.parse(savedConfigJson);
+          const draft =
+            typeof callWithBackoff === 'function'
+              ? callWithBackoff(() => GmailApp.getDraft(savedConfig.draftId))
+              : GmailApp.getDraft(savedConfig.draftId);
+          if (draft) {
+            subject = draft.getMessage().getSubject() || '(No Subject)';
+          }
+        }
+      } catch (err) {
+        // Ignore
+      }
+
+      scheduledSection.addWidget(
+        CardService.newKeyValue().setTopLabel('Gmail Draft').setContent(subject)
+      );
+
+      const userTz =
+        config.userTimezone ||
+        (typeof getSpreadsheetTimezoneSafe === 'function' ? getSpreadsheetTimezoneSafe() : 'GMT');
+      const formattedDate = Utilities.formatDate(
+        new Date(scheduledTime),
+        userTz,
+        'yyyy-MM-dd HH:mm z'
+      );
+
+      scheduledSection.addWidget(
+        CardService.newKeyValue().setTopLabel('Scheduled Time').setContent(formattedDate)
+      );
+
+      const btnRefresh = CardService.newTextButton()
+        .setText('Refresh Status')
+        .setOnClickAction(CardService.newAction().setFunctionName('handleRefreshUI'));
+
+      const btnCancel = CardService.newTextButton()
+        .setText('❌ Cancel Scheduled Send')
+        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setBackgroundColor('#D93025')
+        .setOnClickAction(CardService.newAction().setFunctionName('handleCancelScheduledSend'));
+
+      scheduledSection.addWidget(
+        CardService.newButtonSet().addButton(btnRefresh).addButton(btnCancel)
+      );
+
+      builder.addSection(scheduledSection);
+      return builder.build();
+    }
+  }
+
   const configSection = CardService.newCardSection().setHeader('Configuration');
 
   // Load Data
@@ -124,12 +193,26 @@ function buildHomepageCard(e) {
       .setValue(config.replyTo || getProperty(CONFIG.KEYS.REPLY_TO) || '')
   );
 
+  // Schedule Send (Optional)
+  configSection.addWidget(
+    CardService.newDateTimePicker()
+      .setTitle('Schedule Send Time (Optional)')
+      .setFieldName('scheduleDate')
+  );
+
   builder.addSection(configSection);
 
-  // Batch Progress Section (user-scoped cache)
+  // Batch Progress Section (sheet-scoped cache)
   const cache = CacheService.getUserCache();
   if (config.spreadsheetId) {
-    const cachedProgress = cache.get(CONFIG.KEYS.BATCH_PROGRESS + '_' + config.spreadsheetId);
+    const progressKey =
+      typeof getProgressCacheKey === 'function'
+        ? getProgressCacheKey(config.spreadsheetId, config.sheetName)
+        : CONFIG.KEYS.PROGRESS_CACHE + '_' + config.spreadsheetId;
+    let cachedProgress = cache.get(progressKey);
+    if (!cachedProgress) {
+      cachedProgress = cache.get(CONFIG.KEYS.PROGRESS_CACHE + '_' + config.spreadsheetId);
+    }
     if (cachedProgress) {
       try {
         const progress = JSON.parse(cachedProgress);
@@ -202,7 +285,7 @@ function handleLoadMoreDrafts(e) {
   const config = extractConfigFromEvent(e);
   const ssId = config.spreadsheetId;
   const tabName = config.sheetName;
-  
+
   let currentLimit = parseInt(getProperty(CONFIG.KEYS.DRAFT_LOAD_LIMIT, ssId, tabName) || '10', 10);
   currentLimit += 10;
   setProperty(CONFIG.KEYS.DRAFT_LOAD_LIMIT, String(currentLimit), ssId, tabName);
@@ -251,9 +334,11 @@ function extractConfigFromEvent(e) {
 
       // Special handling for DateTimePicker
       if (input.dateTimeInput) {
-        return input.dateTimeInput.msSinceEpoch
-          ? new Date(Number(input.dateTimeInput.msSinceEpoch)).toISOString()
-          : '';
+        if (input.dateTimeInput.msSinceEpoch) {
+          const rawEpoch = Number(input.dateTimeInput.msSinceEpoch);
+          return new Date(rawEpoch).toISOString();
+        }
+        return '';
       }
 
       // Standard inputs (returns array, take first element)
@@ -268,20 +353,29 @@ function extractConfigFromEvent(e) {
       const rawVal = e.formInput[fieldName];
 
       // Handle DateTimePicker objects in legacy formInput
-      if (typeof rawVal === 'object' && rawVal.msSinceEpoch) {
-        return new Date(Number(rawVal.msSinceEpoch)).toISOString();
+      if (typeof rawVal === 'object') {
+        if (rawVal.msSinceEpoch) {
+          const rawEpoch = Number(rawVal.msSinceEpoch);
+          return new Date(rawEpoch).toISOString();
+        }
+        return '';
       }
-      if (typeof rawVal === 'object' && rawVal.msSinceEpoch !== undefined) {
-        return new Date(Number(rawVal.msSinceEpoch)).toISOString();
+
+      if (String(rawVal) === '{}' || String(rawVal).trim() === '') {
+        return '';
       }
 
       // Some versions of Apps Script return a string representation of an object or just a string epoch
       try {
         const parsed = JSON.parse(rawVal);
-        if (parsed && parsed.msSinceEpoch) {
-          return new Date(Number(parsed.msSinceEpoch)).toISOString();
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.msSinceEpoch) {
+            const rawEpoch = Number(parsed.msSinceEpoch);
+            return new Date(rawEpoch).toISOString();
+          }
+          return '';
         }
-      } catch (e) {
+      } catch (err) {
         // Not JSON
       }
 
@@ -306,7 +400,11 @@ function extractConfigFromEvent(e) {
     userTimezone:
       e && e.commonEventObject && e.commonEventObject.timeZone && e.commonEventObject.timeZone.id
         ? e.commonEventObject.timeZone.id
-        : '',
+        : e && e.userTimezone
+          ? e.userTimezone
+          : typeof getSpreadsheetTimezoneSafe === 'function'
+            ? getSpreadsheetTimezoneSafe()
+            : '',
     spreadsheetId: SpreadsheetApp.getActiveSpreadsheet()
       ? SpreadsheetApp.getActiveSpreadsheet().getId()
       : null,
@@ -353,6 +451,56 @@ function handleSendEmails(e) {
       .build();
   }
 
+  // Check if a future schedule date is specified
+  let isScheduled = false;
+  let scheduleEpoch = 0;
+  if (config.scheduleDate && String(config.scheduleDate).trim() !== '') {
+    scheduleEpoch = new Date(config.scheduleDate).getTime();
+    if (!isNaN(scheduleEpoch) && scheduleEpoch > 0) {
+      isScheduled = true;
+    } else {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification()
+            .setText('Invalid scheduled date format. Please select a valid date/time.')
+            .setType(CardService.NotificationType.WARNING)
+        )
+        .build();
+    }
+  }
+
+  if (isScheduled) {
+    const now = Date.now();
+    if (scheduleEpoch <= now + 10000) {
+      // allow a 10s grace period for tiny clock drifts
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification()
+            .setText('Scheduled time must be in the future.')
+            .setType(CardService.NotificationType.WARNING)
+        )
+        .build();
+    }
+
+    if (typeof scheduleBatchEmails === 'function') {
+      const result = scheduleBatchEmails(config, scheduleEpoch);
+      const updatedCard = buildHomepageCard(e);
+
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification()
+            .setText(result.message)
+            .setType(
+              result.success
+                ? CardService.NotificationType.INFO
+                : CardService.NotificationType.WARNING
+            )
+        )
+        .setNavigation(CardService.newNavigation().updateCard(updatedCard))
+        .build();
+    }
+  }
+
   const result = startBackgroundBatchEmails(config);
 
   return CardService.newActionResponseBuilder()
@@ -364,4 +512,71 @@ function handleSendEmails(e) {
         )
     )
     .build();
+}
+
+function handleCancelScheduledSend(e) {
+  const config = extractConfigFromEvent(e);
+  const spreadsheetId = config.spreadsheetId;
+  const sheetName = config.sheetName;
+
+  let sendMarker = null;
+  if (typeof acquireSendLock_ === 'function') {
+    sendMarker = acquireSendLock_(spreadsheetId, sheetName);
+  }
+
+  try {
+    const storedTriggerId =
+      typeof getProperty === 'function'
+        ? getProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName)
+        : null;
+
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
+    }
+    if (storedTriggerId && typeof deleteTriggerMapping === 'function') {
+      deleteTriggerMapping(storedTriggerId);
+    }
+
+    if (typeof deleteProperty === 'function') {
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+      deleteProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
+      deleteProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
+    }
+
+    // Clear progress cache
+    const cache = CacheService.getUserCache();
+    const progressKey =
+      typeof getProgressCacheKey === 'function'
+        ? getProgressCacheKey(spreadsheetId, sheetName)
+        : CONFIG.KEYS.PROGRESS_CACHE + '_' + spreadsheetId;
+    cache.remove(progressKey);
+    cache.remove(CONFIG.KEYS.PROGRESS_CACHE + '_' + spreadsheetId);
+
+    const updatedCard = buildHomepageCard(e);
+
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification()
+          .setText('Scheduled campaign canceled successfully.')
+          .setType(CardService.NotificationType.INFO)
+      )
+      .setNavigation(CardService.newNavigation().updateCard(updatedCard))
+      .build();
+  } catch (err) {
+    if (typeof ErrorLib !== 'undefined') {
+      ErrorLib.logError(err, 'handleCancelScheduledSend');
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification()
+          .setText('Failed to cancel scheduled send: ' + err.message)
+          .setType(CardService.NotificationType.WARNING)
+      )
+      .build();
+  } finally {
+    if (sendMarker && typeof releaseSendLock_ === 'function') {
+      releaseSendLock_(sendMarker);
+    }
+  }
 }

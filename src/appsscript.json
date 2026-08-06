@@ -24,7 +24,8 @@
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/script.scriptapp",
     "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/script.external_request"
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.locale"
   ],
   "urlFetchWhitelist": [
     "https://www.googleapis.com/drive/v3/files/",
@@ -40,6 +41,7 @@
     "common": {
       "name": "UNAVSA Mail Merge",
       "logoUrl": "https://media.unavsa.org/uploads/2021/03/cropped-UNAVSA-Logo-original.png",
+      "useLocaleFromApp": true,
       "layoutProperties": {
         "primaryColor": "#0F9D58",
         "secondaryColor": "#4285F4"
