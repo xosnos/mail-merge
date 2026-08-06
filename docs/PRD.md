@@ -2,33 +2,54 @@
 
 ## 1. Executive Summary
 
-This internal tool enables non-technical users to execute personalized mass email campaigns directly from Google Sheets using Gmail drafts as templates. It replicates the core functionality of Yet Another Mail Merge (YAMM), allowing users to map spreadsheet columns to email variables, configure sender details, and track engagement metrics (Sent, Opened, Replied, Bounced) in real-time within the spreadsheet.
+This internal tool enables non-technical users to execute personalized mass
+email campaigns directly from Google Sheets using Gmail drafts as templates. It
+replicates the core functionality of Yet Another Mail Merge (YAMM), allowing
+users to map spreadsheet columns to email variables, configure sender details,
+and track engagement metrics (Sent, Opened, Replied, Bounced) in real-time
+within the spreadsheet.
 
 ## 2. Objectives & Success Metrics
 
-- **Objective:** Provide a secure, cost-effective, and easy-to-use internal mail merge solution that keeps all proprietary data strictly within the company’s Google Workspace environment.
+- **Objective:** Provide a secure, cost-effective, and easy-to-use internal mail
+  merge solution that keeps all proprietary data strictly within the company’s
+  Google Workspace environment.
 - **Success Metrics:**
-  - High adoption rate among internal non-technical teams (e.g., Marketing, HR, Sales).
+  - High adoption rate among internal non-technical teams (e.g., Marketing, HR,
+    Sales).
   - 100% accurate tracking of Sent, Opened, Bounced, and Replied statuses.
-  - Zero compliance/security breaches (data never leaves the internal Google tenant).
+  - Zero compliance/security breaches (data never leaves the internal Google
+    tenant).
 
 ## 3. User Personas
 
-- **The Campaign Manager (End-User):** A non-technical employee who needs to send personalized emails to a list of recipients. They are comfortable with Google Sheets and Gmail but rely on an intuitive interface (like a sidebar) to connect the two.
-- **The System Admin (You):** The developer deploying, maintaining, and updating the Google Apps Script project.
+- **The Campaign Manager (End-User):** A non-technical employee who needs to
+  send personalized emails to a list of recipients. They are comfortable with
+  Google Sheets and Gmail but rely on an intuitive interface (like a sidebar) to
+  connect the two.
+- **The System Admin (You):** The developer deploying, maintaining, and updating
+  the Google Apps Script project.
 
 ---
 
 ## 4. User Flow
 
-1. **Draft Creation:** The user opens Gmail, composes a new message, adds variables like `{{First Name}}`, configures CC/BCC, and leaves it in their Drafts folder.
-2. **Data Preparation:** The user opens the designated Google Sheet. Row 1 contains headers matching the variables in the draft (e.g., `First Name`, `Email`).
-3. **Tool Initialization:** The user clicks the Add-on icon in the right-hand Google Workspace sidebar.
+1. **Draft Creation:** The user opens Gmail, composes a new message, adds
+   variables like `{{First Name}}`, configures CC/BCC, and leaves it in their
+   Drafts folder.
+2. **Data Preparation:** The user opens the designated Google Sheet. Row 1
+   contains headers matching the variables in the draft (e.g., `First Name`,
+   `Email`).
+3. **Tool Initialization:** The user clicks the Add-on icon in the right-hand
+   Google Workspace sidebar.
 4. **Configuration:** In the sidebar, the user:
    - Selects the Gmail draft from a dropdown.
-   - Inputs/selects "Sender Name", "Sender Email" (if they have aliases), and "Reply-To" email.
+   - Inputs/selects "Sender Name", "Sender Email" (if they have aliases), and
+     "Reply-To" email.
 5. **Execution:** The user clicks "Send Emails".
-6. **Tracking:** The script processes the rows, sends the emails, and automatically populates a "Merge Status" column in the sheet. Background triggers update this column over time with "Opened", "Replied", or "Bounced".
+6. **Tracking:** The script processes the rows, sends the emails, and
+   automatically populates a "Merge Status" column in the sheet. Background
+   triggers update this column over time with "Opened", "Replied", or "Bounced".
 
 ---
 
@@ -36,61 +57,126 @@ This internal tool enables non-technical users to execute personalized mass emai
 
 ### 5.1 Email Templating (Gmail Integration)
 
-- **Draft Retrieval:** The tool must fetch all current user drafts from Gmail and display their subject lines in a dropdown menu within the Sheets sidebar.
-- **Variable Parsing:** The tool must identify variables enclosed in double curly brackets `{{ }}` within the Subject, Body (HTML and plain text), To, CC, and BCC fields of the draft.
-- **Attachment Support:** Any attachments present in the Gmail draft template must be carried over and sent with the merged emails. (Dynamic personalized attachments from Google Drive are omitted to maximize performance, avoid Drive API rate limits, and prevent timeouts).
+- **Draft Retrieval:** The tool must fetch all current user drafts from Gmail
+  and display their subject lines in a dropdown menu within the Sheets sidebar.
+- **Variable Parsing:** The tool must identify variables enclosed in double
+  curly brackets `{{ }}` within the Subject, Body (HTML and plain text), To, CC,
+  and BCC fields of the draft.
+- **Attachment Support:** Any attachments present in the Gmail draft template
+  must be carried over and sent with the merged emails. (Dynamic personalized
+  attachments from Google Drive are omitted to maximize performance, avoid Drive
+  API rate limits, and prevent timeouts).
 
 ### 5.2 Data Mapping & Execution (Google Sheets Integration)
 
-- **Column Matching:** The tool must map column headers in the active sheet to the `{{variables}}` found in the selected draft. (e.g., Column `Email` maps to recipient).
-- **Custom Menu & Sidebar:** An intuitive Google Workspace Add-on built with Google's CardService.
+- **Column Matching:** The tool must map column headers in the active sheet to
+  the `{{variables}}` found in the selected draft. (e.g., Column `Email` maps to
+  recipient).
+- **Custom Menu & Sidebar:** An intuitive Google Workspace Add-on built with
+  Google's CardService.
 - **Sender Configuration:** The sidebar must allow the user to define:
   - **Sender Name:** A custom text string.
-  - **Sender Email:** Must populate a dropdown of the user's authorized Gmail aliases.
+  - **Sender Email:** Must populate a dropdown of the user's authorized Gmail
+    aliases.
   - **Reply-To:** A custom email address where replies should be directed.
-- **Status Column:** The tool must automatically create a "Merge Status" column at the end of the data range to log the real-time status of each row.
+- **Status Column:** The tool must automatically create a "Merge Status" column
+  at the end of the data range to log the real-time status of each row.
 
 ### 5.3 Tracking & Analytics
 
-The tool must accurately update the "Merge Status" column with the highest-achieved state in this hierarchy: _Sent -> Opened -> Replied_. (_Bounced_ overrides all).
+The tool must accurately update the "Merge Status" column with the
+highest-achieved state in this hierarchy: _Sent -> Opened -> Replied_.
+(_Bounced_ overrides all).
 
-- **Sent:** Marked immediately upon successful execution of the Gmail API send request.
-- **Opened:** Tracked via a 1x1 invisible tracking pixel (image) embedded at the bottom of the HTML email body, utilizing a unique Tracking ID (`tid`) and timestamp (`ts`) to prevent premature open tracking.
-- **Replied:** Tracked by querying the Gmail API for threads linked to the original campaign via `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` custom headers.
-- **Bounced:** Tracked by parsing incoming emails for standard bounce/NDR (Non-Delivery Report) headers tied to the original `X-Campaign-ID` or tracking ID.
-- **Campaign Labeling:** Each campaign should create or reuse a Gmail label and explicitly attach it to sent messages so reply analytics can search both by label and by custom headers.
+- **Sent:** Marked immediately upon successful execution of the Gmail API send
+  request.
+- **Opened:** Tracked via a 1x1 invisible tracking pixel (image) embedded at the
+  bottom of the HTML email body, utilizing a unique Tracking ID (`tid`) and
+  timestamp (`ts`) to prevent premature open tracking.
+- **Replied:** Tracked by querying the Gmail API for threads linked to the
+  original campaign via `X-Campaign-ID`, `X-Row-ID`, and `X-Tracking-ID` custom
+  headers.
+- **Bounced:** Tracked by parsing incoming emails for standard bounce/NDR
+  (Non-Delivery Report) headers tied to the original `X-Campaign-ID` or tracking
+  ID.
+- **Campaign Labeling:** Each campaign should create or reuse a Gmail label and
+  explicitly attach it to sent messages so reply analytics can search both by
+  label and by custom headers.
 
 ### 5.4 Advanced Features (Implemented)
 
-- **Test Email Functionality:** Allows the user to send a test email to themselves before running the whole batch to verify formatting and variable substitution. (Note: CC/BCC headers are stripped from test sends so test emails go exclusively to the testing user).
-- **Immediate & Scheduled Background Execution:** Mail merges run in the background using Apps Script time-driven triggers. Campaigns can be sent immediately or scheduled for a future date and time (with local timezone offset calculation, scheduled status cards, and cancellation controls).
-- **Smart Filtering:** The tool will respect hidden or filtered rows in the spreadsheet, skipping them seamlessly during the batch send process.
+- **Test Email Functionality:** Allows the user to send a test email to
+  themselves before running the whole batch to verify formatting and variable
+  substitution. (Note: CC/BCC headers are stripped from test sends so test
+  emails go exclusively to the testing user).
+- **Immediate & Scheduled Background Execution:** Mail merges run in the
+  background using Apps Script time-driven triggers. Campaigns can be sent
+  immediately or scheduled for a future date and time (with local timezone
+  offset calculation, scheduled status cards, and cancellation controls).
+- **Smart Filtering:** The tool will respect hidden or filtered rows in the
+  spreadsheet, skipping them seamlessly during the batch send process.
 
 ---
 
 ## 6. Non-Functional Requirements & Constraints
 
-- **Google Workspace Limits:** The tool must account for Google's daily email sending quotas (typically 1,500 - 2,000 for Workspace accounts, 400 for trial/free). The UI should warn users if their list exceeds their daily quota.
-- **Performance & Resiliency:** Sending a batch of emails should process quickly. The synchronous UI pass sends for up to ~25 seconds (staying under the 30-second `CardService` callback limit), dispatching the first few hundred recipients instantly; any remainder is handed to a continuation trigger created with `after(1)` so it starts immediately rather than after a fixed delay. Background executions use the full 6-minute window, so a typical campaign (≤500 rows) completes its remainder in a single continuation. Each tab of a spreadsheet is an independent campaign (its own config, resume state, and analytics). Concurrent sends against the same tab are serialized with a per-tab lock to prevent double-sends, while sends against different tabs or spreadsheets run in parallel. Large campaigns are processed with burst-based parallel sends and buffered sheet writes.
-- **Bulk Hidden Row Query (Sheets API)**: To avoid timing out within the 30-second UI callback window, the script uses the Advanced Sheets Service (`Sheets.Spreadsheets.get()`) to fetch hidden/filtered row metadata in a single bulk call instead of running slow row-by-row queries.
-- **Security:** Ensure the script runs _as the user executing the add-on_ so emails are sent from their account and data access is restricted to their permissions.
+- **Google Workspace Limits:** The tool must account for Google's daily email
+  sending quotas (typically 1,500 - 2,000 for Workspace accounts, 400 for
+  trial/free). The UI should warn users if their list exceeds their daily quota.
+- **Performance & Resiliency:** Sending a batch of emails should process
+  quickly. The synchronous UI pass sends for up to ~25 seconds (staying under
+  the 30-second `CardService` callback limit), dispatching the first few hundred
+  recipients instantly; any remainder is handed to a continuation trigger
+  created with `after(1)` so it starts immediately rather than after a fixed
+  delay. Background executions use the full 6-minute window, so a typical
+  campaign (≤500 rows) completes its remainder in a single continuation. Each
+  tab of a spreadsheet is an independent campaign (its own config, resume state,
+  and analytics). Concurrent sends against the same tab are serialized with a
+  per-tab lock to prevent double-sends, while sends against different tabs or
+  spreadsheets run in parallel. Large campaigns are processed with burst-based
+  parallel sends and buffered sheet writes.
+- **Bulk Hidden Row Query (Sheets API)**: To avoid timing out within the
+  30-second UI callback window, the script uses the Advanced Sheets Service
+  (`Sheets.Spreadsheets.get()`) to fetch hidden/filtered row metadata in a
+  single bulk call instead of running slow row-by-row queries.
+- **Security:** Ensure the script runs _as the user executing the add-on_ so
+  emails are sent from their account and data access is restricted to their
+  permissions.
 
 ---
 
 ## 7. Technical Architecture Recommendations (For the Developer)
 
 - **Platform:** Google Workspace Add-on natively integrated into Google Sheets.
-- **UI Framework:** Google Apps Script `CardService` for a native Material Design sidebar experience.
-- **Sending Mechanism:** Raw MIME generation plus the Gmail API. Use burst-based `users.messages.send` calls for throughput, then apply custom campaign labels with `users.messages.modify` so label-based analytics remain reliable.
-- **Scheduled Sends:** Store scheduled send configuration in `PropertiesService` composite keys and set a time-driven trigger (`ScriptApp.newTrigger().timeBased().at(date)`). On execution, `startScheduledBatchSend` initializes the batch engine seamlessly.
+- **UI Framework:** Google Apps Script `CardService` for a native Material
+  Design sidebar experience.
+- **Sending Mechanism:** Raw MIME generation plus the Gmail API. Use burst-based
+  `users.messages.send` calls for throughput, then apply custom campaign labels
+  with `users.messages.modify` so label-based analytics remain reliable.
+- **Scheduled Sends:** Store scheduled send configuration in `PropertiesService`
+  composite keys and set a time-driven trigger
+  (`ScriptApp.newTrigger().timeBased().at(date)`). On execution,
+  `startScheduledBatchSend` initializes the batch engine seamlessly.
 - **Tracking Implementation:**
-  - _Web App Deployment:_ Deploy a standalone GAS Web App that listens for `GET` requests.
-  - _Pixel Injection:_ Append `<img src="YOUR_WEB_APP_URL?sheetId=...&tid=TRACKING_ID&ts=TIMESTAMP" width="1" height="1" />` to the draft's HTML body.
-  - _Webhook Handling:_ When the pixel is loaded, the Web App receives the data, validates the HMAC signature, authenticates via a Service Account with Domain-Wide Delegation, locates the corresponding row in the Sheet using the `tid` via the Sheets API, and updates the status to `Email opened`. The tracker should tolerate a blank status cell so fast opens are still recorded during burst-based send buffering.
-  - _Time-Driven Triggers:_ Set up a background trigger (e.g., every 3 hours) that searches the user's inbox for replies (`in:inbox newer_than:7d -from:me`) and bounces (`from:mailer-daemon`), matching them back to the Sheet via `X-Campaign-ID` and tracking ID custom headers.
+  - _Web App Deployment:_ Deploy a standalone GAS Web App that listens for `GET`
+    requests.
+  - _Pixel Injection:_ Append pixel image tag
+    `<img src="YOUR_WEB_APP_URL..." width="1" height="1" />` to draft HTML body.
+  - _Webhook Handling:_ When the pixel is loaded, the Web App receives the data,
+    validates the HMAC signature, authenticates via a Service Account with
+    Domain-Wide Delegation, locates the corresponding row in the Sheet using the
+    `tid` via the Sheets API, and updates the status to `Email opened`. The
+    tracker should tolerate a blank status cell so fast opens are still recorded
+    during burst-based send buffering.
+  - _Time-Driven Triggers:_ Set up a background trigger (e.g., every 3 hours)
+    that searches the user's inbox for replies
+    (`in:inbox newer_than:7d -from:me`) and bounces (`from:mailer-daemon`),
+    matching them back to the Sheet via `X-Campaign-ID` and tracking ID custom
+    headers.
 
 ---
 
 ## 8. Future Enhancements (Post-MVP)
 
-- **Follow-up Campaigns:** Add the ability to automatically send a follow-up draft to users whose status remains "Sent" (not opened) after X days.
+- **Follow-up Campaigns:** Add the ability to automatically send a follow-up
+  draft to users whose status remains "Sent" (not opened) after X days.
