@@ -13,7 +13,7 @@ project, NOT a script bound to a specific Google Sheet.
 2. Click **New project** in the top left.
 3. Name the project "UNAVSA Mail Merge Add-on".
 4. Copy the new **Script ID** from the Project Settings (gear icon).
-5. Update the `.clasp.json` file in your local repository with this new
+5. Update the `src/.clasp.json` file in your local repository with this new
    `scriptId`.
 6. Run `bun run push:addon` (or `clasp push` inside `src/`) to upload the add-on
    code to the new standalone project.
@@ -54,6 +54,7 @@ In the GCP Console for your new project:
    - `https://www.googleapis.com/auth/script.scriptapp`
    - `https://www.googleapis.com/auth/drive`
    - `https://www.googleapis.com/auth/script.external_request`
+   - `https://www.googleapis.com/auth/script.locale`
 5. Save and continue through the summary screen.
 
 ### 4. Link Apps Script to GCP Project
@@ -97,9 +98,9 @@ deployment:
    `false`. If you forget this, all store users will see a `[DEV]` tag on their
    add-on. Push the add-on code using `bun run push:addon` if you made changes.
    Alternatively, run `bun run deploy` to push and deploy both tracker and
-   add-on (if using the `@HEAD` central tracker endpoint; if using versioned
-   tracker web app deployments, copy the newly created web app URL into
-   `TRACKING_CENTRAL_URL` before pushing the add-on).
+   add-on (note: `bun run deploy` is only valid when `TRACKING_CENTRAL_URL` uses
+   the current `@HEAD` tracker URL; otherwise, copy the newly created tracker web
+   app deployment URL and update `TRACKING_CENTRAL_URL` before deploying the add-on).
 2. Go back to your Google Cloud Console.
 3. Navigate to **APIs & Services > Google Workspace Marketplace SDK**.
 4. Go to the **App Configuration** tab.

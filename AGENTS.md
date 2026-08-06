@@ -216,7 +216,7 @@ for design decisions and implementation priorities.
 - **Architecture:** Workspace Add-on sidebar UI built with `CardService` (with
   `HtmlService` available for custom dialogs).
 - **Action Dispatch & State:** CardService actions use native server callbacks
-  (`ActionResponse`), and state is persisted in
+  (`ActionResponse`, without relying on `google.script.run` for sidebar actions), and state is persisted in
   `PropertiesService.getDocumentProperties()` within the document context.
 
 ### 3. Standard Operating Procedure (SOP)

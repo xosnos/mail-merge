@@ -454,7 +454,7 @@ function handleSendEmails(e) {
   // Check if a future schedule date is specified
   let isScheduled = false;
   let scheduleEpoch = 0;
-  if (config.scheduleDate) {
+  if (config.scheduleDate && String(config.scheduleDate).trim() !== '') {
     scheduleEpoch = new Date(config.scheduleDate).getTime();
     if (!isNaN(scheduleEpoch) && scheduleEpoch > 0) {
       isScheduled = true;
@@ -519,23 +519,28 @@ function handleCancelScheduledSend(e) {
   const spreadsheetId = config.spreadsheetId;
   const sheetName = config.sheetName;
 
+  let sendMarker = null;
+  if (typeof acquireSendLock_ === 'function') {
+    sendMarker = acquireSendLock_(spreadsheetId, sheetName);
+  }
+
   try {
+    const storedTriggerId =
+      typeof getProperty === 'function'
+        ? getProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName)
+        : null;
+
     if (typeof deleteTriggerByHandler === 'function') {
       deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
+    }
+    if (storedTriggerId && typeof deleteTriggerMapping === 'function') {
+      deleteTriggerMapping(storedTriggerId);
     }
 
     if (typeof deleteProperty === 'function') {
       deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
-      deleteProperty(
-        CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
-        spreadsheetId,
-        sheetName
-      );
-      deleteProperty(
-        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
-        spreadsheetId,
-        sheetName
-      );
+      deleteProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
       deleteProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
     }
 
@@ -569,5 +574,9 @@ function handleCancelScheduledSend(e) {
           .setType(CardService.NotificationType.WARNING)
       )
       .build();
+  } finally {
+    if (sendMarker && typeof releaseSendLock_ === 'function') {
+      releaseSendLock_(sendMarker);
+    }
   }
 }

@@ -1114,7 +1114,7 @@ function getMergeProgress(spreadsheetId, sheetName) {
     progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
   }
   if (!progressStr) {
-    return { current: 0, total: 0, status: 'idle' };
+    return { current: 0, processed: 0, total: 0, status: 'idle' };
   }
   return JSON.parse(progressStr);
 }
@@ -1153,33 +1153,28 @@ function scheduleBatchEmails(config, scheduleEpochMs) {
   const spreadsheetId = config.spreadsheetId;
   const sheetName = config.sheetName;
 
-  // Verify tab is not currently sending an active batch
+  let sendMarker = null;
   if (typeof acquireSendLock_ === 'function') {
-    const sendMarker = acquireSendLock_(spreadsheetId, sheetName);
+    sendMarker = acquireSendLock_(spreadsheetId, sheetName);
     if (!sendMarker) {
       return {
         success: false,
         message: 'Cannot schedule send while a batch is currently active on this tab.'
       };
     }
-    releaseSendLock_(sendMarker);
   }
 
   try {
     // Save the scheduled config separately from active BATCH_CONFIG
-    setProperty(
-      CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
-      JSON.stringify(config),
-      spreadsheetId,
-      sheetName
-    );
-
-    // Save the scheduled time
+    setProperty(CONFIG.KEYS.SCHEDULED_CONFIG, JSON.stringify(config), spreadsheetId, sheetName);
     setProperty(CONFIG.KEYS.SCHEDULED_TIME, String(scheduleEpochMs), spreadsheetId, sheetName);
 
     // Clean up any existing triggers for this tab to avoid collisions/duplicate schedules
     if (typeof cleanupOrphanedTriggers === 'function') {
       cleanupOrphanedTriggers(spreadsheetId, sheetName);
+    }
+    if (typeof deleteTriggerByHandler === 'function') {
+      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
     }
 
     // Create the one-time trigger at the scheduled time wrapped with exponential backoff
@@ -1193,7 +1188,7 @@ function scheduleBatchEmails(config, scheduleEpochMs) {
     if (trigger) {
       // Store trigger unique ID for verification in startScheduledBatchSend
       setProperty(
-        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
+        CONFIG.KEYS.SCHEDULED_TRIGGER_ID,
         trigger.getUniqueId(),
         spreadsheetId,
         sheetName
@@ -1219,21 +1214,17 @@ function scheduleBatchEmails(config, scheduleEpochMs) {
     // Roll back saved schedule state on failure
     if (typeof deleteProperty === 'function') {
       deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
-      deleteProperty(
-        CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
-        spreadsheetId,
-        sheetName
-      );
-      deleteProperty(
-        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
-        spreadsheetId,
-        sheetName
-      );
+      deleteProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
     }
     if (typeof ErrorLib !== 'undefined') {
       ErrorLib.logError(err, 'scheduleBatchEmails');
     }
     return { success: false, message: 'Scheduling failed: ' + err.message };
+  } finally {
+    if (sendMarker && typeof releaseSendLock_ === 'function') {
+      releaseSendLock_(sendMarker);
+    }
   }
 }
 
@@ -1254,11 +1245,7 @@ function startScheduledBatchSend(e) {
       typeof getSheetNameFromTrigger === 'function' ? getSheetNameFromTrigger(e) : null;
 
     // Validate expected trigger UID to prevent race conditions from duplicate or old triggers
-    const storedTriggerId = getProperty(
-      CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
-      spreadsheetId,
-      sheetName
-    );
+    const storedTriggerId = getProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
     if (e && e.triggerUid && storedTriggerId && storedTriggerId !== e.triggerUid) {
       console.log(
         `startScheduledBatchSend: Trigger UID mismatch (event: ${e.triggerUid}, stored: ${storedTriggerId}). Skipping.`
@@ -1266,49 +1253,65 @@ function startScheduledBatchSend(e) {
       return;
     }
 
-    // Clean up trigger mapping and the trigger itself
-    if (e && e.triggerUid && typeof deleteTriggerMapping === 'function') {
-      deleteTriggerMapping(e.triggerUid);
-    }
-    if (typeof deleteTriggerByHandler === 'function') {
-      deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
-    }
-
-    // Clear the scheduled state flags
-    if (typeof deleteProperty === 'function') {
-      deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
-      deleteProperty(
-        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
-        spreadsheetId,
-        sheetName
-      );
+    let sendMarker = null;
+    if (typeof acquireSendLock_ === 'function') {
+      sendMarker = acquireSendLock_(spreadsheetId, sheetName);
+      if (!sendMarker) {
+        console.log('startScheduledBatchSend: Tab lock busy. Skipping execution.');
+        return;
+      }
     }
 
-    const scheduledConfigKey = CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG';
-    let configJson = getProperty(scheduledConfigKey, spreadsheetId, sheetName);
+    try {
+      // Clean up trigger mapping and the trigger itself
+      if (e && e.triggerUid && typeof deleteTriggerMapping === 'function') {
+        deleteTriggerMapping(e.triggerUid);
+      }
+      if (typeof deleteTriggerByHandler === 'function') {
+        deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
+      }
 
-    // Fall back to BATCH_CONFIG if SCHEDULED_CONFIG was not set separately
-    if (!configJson) {
-      configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
+      // Clear the scheduled state flags
+      if (typeof deleteProperty === 'function') {
+        deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+        deleteProperty(CONFIG.KEYS.SCHEDULED_TRIGGER_ID, spreadsheetId, sheetName);
+      }
+
+      let configJson = getProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+
+      // Fall back to BATCH_CONFIG if SCHEDULED_CONFIG was not set separately
+      if (!configJson) {
+        configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
+      }
+
+      if (!configJson) {
+        console.log('startScheduledBatchSend: No saved config found.');
+        return;
+      }
+
+      // Clean up SCHEDULED_CONFIG property and write active BATCH_CONFIG property
+      if (typeof deleteProperty === 'function') {
+        deleteProperty(CONFIG.KEYS.SCHEDULED_CONFIG, spreadsheetId, sheetName);
+      }
+      setProperty(CONFIG.KEYS.BATCH_CONFIG, configJson, spreadsheetId, sheetName);
+
+      const config = JSON.parse(configJson);
+
+      // Release the scheduling sendMarker before calling sendBatchEmails which acquires its own lock
+      if (sendMarker && typeof releaseSendLock_ === 'function') {
+        releaseSendLock_(sendMarker);
+        sendMarker = null;
+      }
+
+      // Call sendBatchEmails(config, 0, false) (with isUiContext = false)
+      console.log('startScheduledBatchSend: Starting scheduled batch send.');
+      const result = sendBatchEmails(config, 0, false);
+      console.log('startScheduledBatchSend completed with result: ' + JSON.stringify(result));
+    } finally {
+      if (sendMarker && typeof releaseSendLock_ === 'function') {
+        releaseSendLock_(sendMarker);
+      }
     }
-
-    if (!configJson) {
-      console.log('startScheduledBatchSend: No saved config found.');
-      return;
-    }
-
-    // Clean up SCHEDULED_CONFIG property and write active BATCH_CONFIG property
-    if (typeof deleteProperty === 'function') {
-      deleteProperty(scheduledConfigKey, spreadsheetId, sheetName);
-    }
-    setProperty(CONFIG.KEYS.BATCH_CONFIG, configJson, spreadsheetId, sheetName);
-
-    const config = JSON.parse(configJson);
-
-    // Call sendBatchEmails(config, 0, false) (with isUiContext = false)
-    console.log('startScheduledBatchSend: Starting scheduled batch send.');
-    const result = sendBatchEmails(config, 0, false);
-    console.log('startScheduledBatchSend completed with result: ' + JSON.stringify(result));
   } catch (err) {
     if (typeof ErrorLib !== 'undefined') {
       ErrorLib.logError(err, 'startScheduledBatchSend');

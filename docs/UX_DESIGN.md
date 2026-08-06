@@ -81,13 +81,13 @@ asynchronously.
   timestamp and cancellation controls.
 - **The Merge Status Column**: The Add-on automatically appends a "Merge Status"
   column to the far right of the sheet data. As emails are sent, cells
-  immediately populate with `Sent <timestamp>`.
+  immediately populate with `Email sent` (with the send timestamp stored in the cell note).
 - **Zero-Interaction Tracking**: The true power of the UX is what happens
   _after_ the sidebar is closed. The user does not need to log into a dashboard.
   As recipients interact with the emails, the "Merge Status" column
   automatically updates:
-  - `Sent` upgrades to `Opened <timestamp>` when the tracking pixel fires.
-  - `Opened` upgrades to `Replied` when the backend inbox scanner detects a
+  - `Email sent` upgrades to `Email opened` when the tracking pixel fires.
+  - `Email opened` upgrades to `Replied` when the backend inbox scanner detects a
     reply.
   - `Bounced` overwrites any status if a delivery failure is detected.
 

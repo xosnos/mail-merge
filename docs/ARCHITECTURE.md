@@ -79,7 +79,7 @@ ID/label, and reply/bounce cursors.
 
 - **PropertiesService**: Used to store long-term campaign configuration
   (Selected Draft ID, Sender Alias, Reply-To, Scheduled Send timestamp/config)
-  scoped to the user and the specific spreadsheet **+ tab**.
+  scoped to the document and specific **tab** (via `PropertiesService.getDocumentProperties()`).
 - **Trigger Context Mapping**: Background time-driven triggers execute without
   an active UI context (no active spreadsheet/sheet). To resolve this, the
   system maps `triggerUid` to the originating `{spreadsheetId, sheetName}` in
