@@ -78,7 +78,7 @@ The add-on now sends mail and applies campaign labels through direct Gmail REST 
 
 ### 2. Publish the Workspace Add-on
 
-1. **CRITICAL:** Open `src/core/Config.js` and ensure `IS_DEV_MODE` is set to `false`. If you forget this, all store users will see a `[DEV]` tag on their add-on. Push the add-on code using `bun run push:addon` if you made changes. Alternatively, run `bun run deploy` to push and deploy both tracker and add-on.
+1. **CRITICAL:** Open `src/core/Config.js` and ensure `IS_DEV_MODE` is set to `false`. If you forget this, all store users will see a `[DEV]` tag on their add-on. Push the add-on code using `bun run push:addon` if you made changes. Alternatively, run `bun run deploy` to push and deploy both tracker and add-on (if using the `@HEAD` central tracker endpoint; if using versioned tracker web app deployments, copy the newly created web app URL into `TRACKING_CENTRAL_URL` before pushing the add-on).
 2. Go back to your Google Cloud Console.
 3. Navigate to **APIs & Services > Google Workspace Marketplace SDK**.
 4. Go to the **App Configuration** tab.

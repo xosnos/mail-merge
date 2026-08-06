@@ -148,9 +148,8 @@ Project documentation covering product requirements, technical roadmap, deployme
 ### 2. Development Stack & Tooling
 
 - **Local Development CLI:** We use `@google/clasp` to develop locally using standard `.js`, `.html`, and `appsscript.json` files. Package management and scripts use `bun`. This bypasses the clunky online Apps Script editor and enables standard Git version control.
-- **Architecture:** Vanilla HTML/CSS/JS frontend attached to a Google Apps Script backend using `HtmlService` and `CardService`.
-- **Asynchronous Bridge:** `google.script.run` heavily utilized for all UI-to-Backend data fetching and execution.
-- **State Persistence:** Google's `PropertiesService.getDocumentProperties()` safely stores user UI selections (Drafts, Columns, Aliases, Scheduled Sends) within the document's context.
+- **Architecture:** Workspace Add-on sidebar UI built with `CardService` (with `HtmlService` available for custom dialogs).
+- **Action Dispatch & State:** CardService actions use native server callbacks (`ActionResponse`), and state is persisted in `PropertiesService.getDocumentProperties()` within the document context.
 
 ### 3. Standard Operating Procedure (SOP)
 

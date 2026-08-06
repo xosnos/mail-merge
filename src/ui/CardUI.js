@@ -31,14 +31,18 @@ function buildHomepageCard(e) {
 
       let subject = 'Unknown Draft';
       try {
-        const savedConfigJson = getProperty(
-          CONFIG.KEYS.BATCH_CONFIG,
-          config.spreadsheetId,
-          config.sheetName
-        );
+        const savedConfigJson =
+          getProperty(
+            CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
+            config.spreadsheetId,
+            config.sheetName
+          ) || getProperty(CONFIG.KEYS.BATCH_CONFIG, config.spreadsheetId, config.sheetName);
         if (savedConfigJson) {
           const savedConfig = JSON.parse(savedConfigJson);
-          const draft = GmailApp.getDraft(savedConfig.draftId);
+          const draft =
+            typeof callWithBackoff === 'function'
+              ? callWithBackoff(() => GmailApp.getDraft(savedConfig.draftId))
+              : GmailApp.getDraft(savedConfig.draftId);
           if (draft) {
             subject = draft.getMessage().getSubject() || '(No Subject)';
           }
@@ -198,10 +202,17 @@ function buildHomepageCard(e) {
 
   builder.addSection(configSection);
 
-  // Batch Progress Section (user-scoped cache)
+  // Batch Progress Section (sheet-scoped cache)
   const cache = CacheService.getUserCache();
   if (config.spreadsheetId) {
-    const cachedProgress = cache.get(CONFIG.KEYS.PROGRESS_CACHE + '_' + config.spreadsheetId);
+    const progressKey =
+      typeof getProgressCacheKey === 'function'
+        ? getProgressCacheKey(config.spreadsheetId, config.sheetName)
+        : CONFIG.KEYS.PROGRESS_CACHE + '_' + config.spreadsheetId;
+    let cachedProgress = cache.get(progressKey);
+    if (!cachedProgress) {
+      cachedProgress = cache.get(CONFIG.KEYS.PROGRESS_CACHE + '_' + config.spreadsheetId);
+    }
     if (cachedProgress) {
       try {
         const progress = JSON.parse(cachedProgress);
@@ -447,6 +458,14 @@ function handleSendEmails(e) {
     scheduleEpoch = new Date(config.scheduleDate).getTime();
     if (!isNaN(scheduleEpoch) && scheduleEpoch > 0) {
       isScheduled = true;
+    } else {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification()
+            .setText('Invalid scheduled date format. Please select a valid date/time.')
+            .setType(CardService.NotificationType.WARNING)
+        )
+        .build();
     }
   }
 
@@ -507,11 +526,26 @@ function handleCancelScheduledSend(e) {
 
     if (typeof deleteProperty === 'function') {
       deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+      deleteProperty(
+        CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
+        spreadsheetId,
+        sheetName
+      );
+      deleteProperty(
+        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
+        spreadsheetId,
+        sheetName
+      );
       deleteProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
     }
 
     // Clear progress cache
     const cache = CacheService.getUserCache();
+    const progressKey =
+      typeof getProgressCacheKey === 'function'
+        ? getProgressCacheKey(spreadsheetId, sheetName)
+        : CONFIG.KEYS.PROGRESS_CACHE + '_' + spreadsheetId;
+    cache.remove(progressKey);
     cache.remove(CONFIG.KEYS.PROGRESS_CACHE + '_' + spreadsheetId);
 
     const updatedCard = buildHomepageCard(e);

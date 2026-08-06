@@ -707,9 +707,12 @@ function sendBatchEmails(config, startRow, isUiContext = false) {
       };
     }
 
-    // Initialize progress Cache (user-scoped to prevent cross-user collisions)
+    // Initialize progress Cache (sheet-scoped to prevent collisions)
     const cache = CacheService.getUserCache();
-    const progressKey = CONFIG.KEYS.PROGRESS_CACHE + '_' + lockSsId;
+    const progressKey =
+      typeof getProgressCacheKey === 'function'
+        ? getProgressCacheKey(config.spreadsheetId, config.sheetName)
+        : CONFIG.KEYS.PROGRESS_CACHE + '_' + lockSsId;
     cache.put(
       progressKey,
       JSON.stringify({ current: 0, total: totalToSend, status: 'sending' }),
@@ -1072,21 +1075,42 @@ function resumeBatchSend(e) {
 
 /**
  * Reads the current progress from CacheService.
+ * @param {string} [spreadsheetId]
+ * @param {string} [sheetName]
  * @returns {Object} JSON object with current, total, and status
  */
-function getMergeProgress() {
+function getMergeProgress(spreadsheetId, sheetName) {
   const cache = CacheService.getUserCache();
-  let ssId = null;
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (ss) ssId = ss.getId();
-  } catch (e) {
-    // Ignore
+  let ssId = spreadsheetId || null;
+  let tabName = sheetName || null;
+  if (!ssId || !tabName) {
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) {
+        if (!ssId) ssId = ss.getId();
+        if (!tabName) {
+          const sh = ss.getActiveSheet();
+          if (sh) tabName = sh.getName();
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
   }
-  const key = ssId ? CONFIG.KEYS.PROGRESS_CACHE + '_' + ssId : CONFIG.KEYS.PROGRESS_CACHE;
+  const key =
+    typeof getProgressCacheKey === 'function'
+      ? getProgressCacheKey(ssId, tabName)
+      : ssId
+        ? CONFIG.KEYS.PROGRESS_CACHE + '_' + ssId
+        : CONFIG.KEYS.PROGRESS_CACHE;
+
   let progressStr = cache.get(key);
   if (!progressStr && ssId) {
-    // fallback to unscoped key just in case
+    // fallback to legacy spreadsheet-only key
+    progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE + '_' + ssId);
+  }
+  if (!progressStr) {
+    // fallback to unscoped key
     progressStr = cache.get(CONFIG.KEYS.PROGRESS_CACHE);
   }
   if (!progressStr) {
@@ -1126,12 +1150,29 @@ function startBackgroundBatchEmails(config) {
  * @returns {Object} {success: boolean, message: string}
  */
 function scheduleBatchEmails(config, scheduleEpochMs) {
-  try {
-    const spreadsheetId = config.spreadsheetId;
-    const sheetName = config.sheetName;
+  const spreadsheetId = config.spreadsheetId;
+  const sheetName = config.sheetName;
 
-    // Save the config so the trigger handler can fetch it
-    setProperty(CONFIG.KEYS.BATCH_CONFIG, JSON.stringify(config), spreadsheetId, sheetName);
+  // Verify tab is not currently sending an active batch
+  if (typeof acquireSendLock_ === 'function') {
+    const sendMarker = acquireSendLock_(spreadsheetId, sheetName);
+    if (!sendMarker) {
+      return {
+        success: false,
+        message: 'Cannot schedule send while a batch is currently active on this tab.'
+      };
+    }
+    releaseSendLock_(sendMarker);
+  }
+
+  try {
+    // Save the scheduled config separately from active BATCH_CONFIG
+    setProperty(
+      CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
+      JSON.stringify(config),
+      spreadsheetId,
+      sheetName
+    );
 
     // Save the scheduled time
     setProperty(CONFIG.KEYS.SCHEDULED_TIME, String(scheduleEpochMs), spreadsheetId, sheetName);
@@ -1141,16 +1182,27 @@ function scheduleBatchEmails(config, scheduleEpochMs) {
       cleanupOrphanedTriggers(spreadsheetId, sheetName);
     }
 
-    // Create the one-time trigger at the scheduled time
+    // Create the one-time trigger at the scheduled time wrapped with exponential backoff
     const scheduledDate = new Date(scheduleEpochMs);
-    const trigger = ScriptApp.newTrigger('startScheduledBatchSend')
-      .timeBased()
-      .at(scheduledDate)
-      .create();
+    const createTriggerFn = () =>
+      ScriptApp.newTrigger('startScheduledBatchSend').timeBased().at(scheduledDate).create();
 
-    // Map trigger to spreadsheet/tab context so getSpreadsheetIdFromTrigger can resolve it
-    if (typeof mapTriggerToSpreadsheet === 'function') {
-      mapTriggerToSpreadsheet(trigger, spreadsheetId, sheetName);
+    const trigger =
+      typeof callWithBackoff === 'function' ? callWithBackoff(createTriggerFn) : createTriggerFn();
+
+    if (trigger) {
+      // Store trigger unique ID for verification in startScheduledBatchSend
+      setProperty(
+        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
+        trigger.getUniqueId(),
+        spreadsheetId,
+        sheetName
+      );
+
+      // Map trigger to spreadsheet/tab context so getSpreadsheetIdFromTrigger can resolve it
+      if (typeof mapTriggerToSpreadsheet === 'function') {
+        mapTriggerToSpreadsheet(trigger, spreadsheetId, sheetName);
+      }
     }
 
     // Format local time for the response message
@@ -1164,6 +1216,20 @@ function scheduleBatchEmails(config, scheduleEpochMs) {
       message: `Campaign scheduled successfully for ${formattedDate}!`
     };
   } catch (err) {
+    // Roll back saved schedule state on failure
+    if (typeof deleteProperty === 'function') {
+      deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+      deleteProperty(
+        CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG',
+        spreadsheetId,
+        sheetName
+      );
+      deleteProperty(
+        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
+        spreadsheetId,
+        sheetName
+      );
+    }
     if (typeof ErrorLib !== 'undefined') {
       ErrorLib.logError(err, 'scheduleBatchEmails');
     }
@@ -1187,6 +1253,19 @@ function startScheduledBatchSend(e) {
     const sheetName =
       typeof getSheetNameFromTrigger === 'function' ? getSheetNameFromTrigger(e) : null;
 
+    // Validate expected trigger UID to prevent race conditions from duplicate or old triggers
+    const storedTriggerId = getProperty(
+      CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
+      spreadsheetId,
+      sheetName
+    );
+    if (e && e.triggerUid && storedTriggerId && storedTriggerId !== e.triggerUid) {
+      console.log(
+        `startScheduledBatchSend: Trigger UID mismatch (event: ${e.triggerUid}, stored: ${storedTriggerId}). Skipping.`
+      );
+      return;
+    }
+
     // Clean up trigger mapping and the trigger itself
     if (e && e.triggerUid && typeof deleteTriggerMapping === 'function') {
       deleteTriggerMapping(e.triggerUid);
@@ -1195,16 +1274,34 @@ function startScheduledBatchSend(e) {
       deleteTriggerByHandler('startScheduledBatchSend', spreadsheetId, sheetName);
     }
 
-    // Clear the scheduled time flag so the UI knows we are no longer in scheduled state
+    // Clear the scheduled state flags
     if (typeof deleteProperty === 'function') {
       deleteProperty(CONFIG.KEYS.SCHEDULED_TIME, spreadsheetId, sheetName);
+      deleteProperty(
+        CONFIG.KEYS.SCHEDULED_TRIGGER_ID || 'YAMM_CLONE_SCHEDULED_TRIGGER_ID',
+        spreadsheetId,
+        sheetName
+      );
     }
 
-    const configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
+    const scheduledConfigKey = CONFIG.KEYS.SCHEDULED_CONFIG || 'YAMM_CLONE_SCHEDULED_CONFIG';
+    let configJson = getProperty(scheduledConfigKey, spreadsheetId, sheetName);
+
+    // Fall back to BATCH_CONFIG if SCHEDULED_CONFIG was not set separately
+    if (!configJson) {
+      configJson = getProperty(CONFIG.KEYS.BATCH_CONFIG, spreadsheetId, sheetName);
+    }
+
     if (!configJson) {
       console.log('startScheduledBatchSend: No saved config found.');
       return;
     }
+
+    // Clean up SCHEDULED_CONFIG property and write active BATCH_CONFIG property
+    if (typeof deleteProperty === 'function') {
+      deleteProperty(scheduledConfigKey, spreadsheetId, sheetName);
+    }
+    setProperty(CONFIG.KEYS.BATCH_CONFIG, configJson, spreadsheetId, sheetName);
 
     const config = JSON.parse(configJson);
 

@@ -89,12 +89,11 @@ function deleteTriggerByHandler(handlerName, spreadsheetId, sheetName) {
       const mappedSheetName = mapping ? mapping.sheetName : null;
       if (
         targetSpreadsheetId &&
-        mappedSpreadsheetId &&
-        mappedSpreadsheetId !== targetSpreadsheetId
+        (!mappedSpreadsheetId || mappedSpreadsheetId !== targetSpreadsheetId)
       ) {
         return;
       }
-      if (targetSheetName && mappedSheetName && mappedSheetName !== targetSheetName) {
+      if (targetSheetName && (!mappedSheetName || mappedSheetName !== targetSheetName)) {
         return;
       }
 
